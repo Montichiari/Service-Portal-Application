@@ -1,6 +1,7 @@
 # Local disposable Postgres for development only.
 # The FastAPI and React apps are NOT containerized here — run those natively.
 # Credentials/db name match backend/.env.example's DATABASE_URL.
+# Host port is 5433 (not 5432) to avoid clashing with a locally-installed Postgres service.
 
 services:
   db:
@@ -10,7 +11,7 @@ services:
       POSTGRES_PASSWORD: portal
       POSTGRES_DB: portal
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
