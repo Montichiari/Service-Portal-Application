@@ -42,7 +42,9 @@ export default function SubmitRequestPage() {
     formState: { errors },
   } = useForm<SubmitRequestValues>({
     resolver: zodResolver(submitRequestSchema),
-    defaultValues: { title: '', description: '' },
+    // priority is listed (as undefined) so reset() below clears its error too —
+    // RHF only reliably resets Controller fields it has a default for.
+    defaultValues: { title: '', description: '', priority: undefined },
   })
 
   // Fade the banner in once, matching RegisterPage / design-tokens.md's
@@ -57,10 +59,11 @@ export default function SubmitRequestPage() {
 
   const onValidSubmit = () => {
     // requirements.md section 3: the submit is simulated only — nothing is
-    // persisted, sent, or added to any list. reset() clears the registered
-    // fields (title, description, priority); the disabled Request type Select
-    // is uncontrolled and not registered, so it keeps showing "General".
-    reset()
+    // persisted, sent, or added to any list. Reset every registered field
+    // (title, description, priority) back to empty, clearing values and any
+    // errors; the disabled Request type Select is uncontrolled and not
+    // registered, so it keeps showing "General".
+    reset({ title: '', description: '', priority: undefined })
     setSubmitted(true)
   }
 
