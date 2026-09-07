@@ -1,0 +1,76 @@
+/*
+ * Design tokens — single source of literal values for the frontend.
+ * Values come from specs/frontend-phase/design-tokens.md. Do not hardcode
+ * colors, type sizes, or spacing anywhere else; add a token here and
+ * reference it instead.
+ *
+ * The "Derived / not in design-tokens.md" group at the bottom holds values
+ * the spec does not enumerate (spacing scale, shell widths, filled-pill text
+ * colour, focus ring). They are declared here rather than inlined so the
+ * no-magic-numbers rule still holds.
+ */
+
+:root {
+  /* ── Base palette ─────────────────────────────────────────────── */
+  --chrome: #141b2e;
+  --chrome-text: #c8cdd8;
+  --chrome-text-active: #ffffff;
+  --surface: #f7f8fa;
+  --card: #ffffff;
+  --text-primary: #1a1f2b;
+  --text-secondary: #5b6472;
+  --border: #e2e5ea;
+  --accent: #2f5aa8;
+  --danger: #b3261e;
+
+  /* ── Status palette (statuses schema field only) ──────────────── */
+  --status-open: #2f5aa8;
+  --status-in-progress: #c77d22;
+  --status-resolved: #2f7d5c;
+  --status-closed: #5b6472;
+  --status-draft: #8a93a3;
+
+  /* ── Priority palette ────────────────────────────────────────── */
+  --priority-low: #5b6472;
+  --priority-medium: #c77d22;
+  --priority-high: #b3261e;
+
+  /* ── Typography ──────────────────────────────────────────────── */
+  --font-sans: 'Public Sans', system-ui, sans-serif;
+
+  --text-12: 12px;
+  --text-13: 13px;
+  --text-14: 14px;
+  --text-16: 16px;
+  --text-20: 20px;
+  --text-24: 24px;
+  --text-32: 32px;
+
+  --leading-body: 1.5;
+
+  --weight-regular: 400;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+
+  /* design-tokens.md gives a line-height only for body (1.5); headings use
+     this tighter value so dense screens stay compact. */
+  --leading-heading: 1.25;
+
+  /* ── Layout ─────────────────────────────────────────────────── */
+  --radius-card: 4px;
+  --border-hairline: 1px;
+
+  /* ── Derived / not in design-tokens.md ──────────────────────── */
+  --text-on-fill: #ffffff;
+  --focus-ring: var(--accent);
+
+  --sidebar-width: 240px;
+  --auth-card-width: 400px;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+}
