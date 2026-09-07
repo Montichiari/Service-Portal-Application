@@ -1,4 +1,5 @@
 import { zodResolver } from '@hookform/resolvers/zod'
+import { useState } from 'react'
 import type { ReactNode } from 'react'
 import { useForm } from 'react-hook-form'
 import { Link, useNavigate } from 'react-router-dom'
@@ -9,20 +10,37 @@ import { TextInput } from '@/components/ui/TextInput'
 import { useAuth, type Role } from '@/context/AuthContext'
 import { loginSchema, type LoginValues } from '@/schemas/loginSchema'
 
+// Throwaway demo credential. requirements.md section 1 has no credential check
+// at all — a standard submit is informational only. This single hardcoded pair
+// stands in until real auth lands server-side in Phase 3: an exact match signs
+// the user in and routes to the Submit Service Request page, anything else is
+// rejected inline.
+const DEMO_USERNAME = 'username'
+const DEMO_PASSWORD = 'password'
+
 export default function LoginPage() {
   const navigate = useNavigate()
   const { setRole } = useAuth()
+  const [rejected, setRejected] = useState(false)
   const {
     register,
     handleSubmit,
     formState: { errors },
   } = useForm<LoginValues>({ resolver: zodResolver(loginSchema) })
 
-  const onValidSubmit = () => {
-    // No account store exists (requirements.md section 1): a valid-format
-    // submit is informational only and deliberately goes nowhere. The demo
-    // shortcuts below are the real way into the app.
+  const onValidSubmit = (values: LoginValues) => {
+    if (values.username === DEMO_USERNAME && values.password === DEMO_PASSWORD) {
+      // Matching pair = a successful sign-in: establish the cosmetic role the
+      // Task 3 guard will read, then go to the request form.
+      setRole('user')
+      navigate('/requests/new')
+      return
+    }
+    setRejected(true)
   }
+
+  // Drop the rejection notice as soon as the user edits either field.
+  const clearRejected = () => setRejected(false)
 
   function continueAs(role: Role) {
     setRole(role)
@@ -38,18 +56,30 @@ export default function LoginPage() {
         </CardDescription>
       </CardHeader>
 
+      {rejected ? (
+        <p
+          role="alert"
+          className="rounded-card border border-danger bg-card px-3 py-2 text-dense font-semibold text-danger"
+        >
+          Incorrect username or password
+        </p>
+      ) : null}
+
       <form
         className="flex flex-col gap-4"
         noValidate
         onSubmit={handleSubmit(onValidSubmit)}
       >
-        <Field label="Email" htmlFor="login-email" error={errors.email?.message}>
+        <Field
+          label="Username"
+          htmlFor="login-username"
+          error={errors.username?.message}
+        >
           <TextInput
-            id="login-email"
-            type="email"
-            autoComplete="email"
-            aria-invalid={errors.email ? true : undefined}
-            {...register('email')}
+            id="login-username"
+            autoComplete="username"
+            aria-invalid={errors.username ? true : undefined}
+            {...register('username', { onChange: clearRejected })}
           />
         </Field>
 
@@ -63,7 +93,7 @@ export default function LoginPage() {
             type="password"
             autoComplete="current-password"
             aria-invalid={errors.password ? true : undefined}
-            {...register('password')}
+            {...register('password', { onChange: clearRejected })}
           />
         </Field>
 
