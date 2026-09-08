@@ -60,6 +60,12 @@
   --radius-card: 4px;
   --border-hairline: 1px;
 
+  /* Content-width bound for single-action form pages — design-tokens.md
+     "Content width" table (single-action form: 640px, centered). The
+     detail-view (720px) and table/dashboard (1040px) bounds join this group
+     when those pages are built; they stay left-aligned per that table. */
+  --content-form: 640px;
+
   /* ── Derived / not in design-tokens.md ──────────────────────── */
   --text-on-fill: #ffffff;
   --focus-ring: var(--accent);

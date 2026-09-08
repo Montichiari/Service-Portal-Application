@@ -54,6 +54,22 @@
   --spacing-auth-card: var(--auth-card-width);
 }
 
+@layer components {
+  /*
+   * Shared width bound for single-action form pages — design-tokens.md
+   * "Content width" (single-action form: 640px, centered in the content
+   * area). Centered with auto inline margins, which resolve to zero once the
+   * content area is narrower than --content-form, so below --bp-mobile the
+   * column is fluid and full-width with no separate rule needed. Reuse this
+   * class on future single-action forms instead of re-solving alignment
+   * per page; detail/dashboard content stays left-aligned and must not use it.
+   */
+  .content-form {
+    max-width: var(--content-form);
+    margin-inline: auto;
+  }
+}
+
 @layer base {
   *,
   *::before,

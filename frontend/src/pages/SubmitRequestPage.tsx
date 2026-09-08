@@ -69,7 +69,7 @@ export default function SubmitRequestPage() {
 
   return (
     <AppShell>
-      <div className="flex max-w-xl flex-col gap-6">
+      <div className="content-form flex flex-col gap-6">
         <header className="flex flex-col gap-1">
           <h1 className="text-h2 font-semibold text-text-primary">
             Submit a service request
