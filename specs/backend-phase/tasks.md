@@ -65,7 +65,7 @@ docker-compose Postgres service).
 **Acceptance criteria**
 
 - [ ] Matches R4: columns/types from `design.md`, `priority` CHECK
-      constraint, `metadata` as `JSONB` defaulting to `{}`,
+      constraint, `request_metadata` as `JSONB` defaulting to `{}`,
       `current_status_id` NOT NULL with **no** DB-level default (per the
       resolved decision in `design.md` — do not invent one).
 - [ ] `requestor` and `assignee` relationships both to `User`, each with

@@ -1,7 +1,7 @@
 # Backend Schema — Design (reconciled with final ERD)
 
 > Reconciled against the final ERD, including the switch to UUID primary
-> keys, the `refresh_tokens` table, and the `request_type`/`metadata`
+> keys, the `refresh_tokens` table, and the `request_type`/`request_metadata`
 > columns on `service_requests`.
 
 ## Resolved decisions (confirmed against the drawio ERD)
@@ -62,7 +62,7 @@ CREATE TABLE service_requests (
     priority           VARCHAR(10) NOT NULL DEFAULT 'medium'
                        CHECK (priority IN ('low', 'medium', 'high')),
     current_status_id  UUID NOT NULL REFERENCES statuses(id) ON DELETE RESTRICT,
-    metadata           JSONB NOT NULL DEFAULT '{}',
+    request_metadata   JSONB NOT NULL DEFAULT '{}',
     created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at         TIMESTAMPTZ NOT NULL DEFAULT now()
 );

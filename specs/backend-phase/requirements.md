@@ -70,8 +70,13 @@ ZONE`, not the `TIMESTAMPTZ` every timestamp column in `design.md`'s DDL
   `DEFAULT` — per `design.md`'s resolved decision, the application layer (a later
   backend task, not this one) is responsible for setting it to the "open"
   status's id on insert. Do not invent a hardcoded default here.
-- THE SYSTEM SHALL type `metadata` as `JSONB` with a non-nullable default
-  of an empty object (`{}`).
+- THE SYSTEM SHALL type `request_metadata` as `JSONB` with a non-nullable
+  default of an empty object (`{}`). Both the database column and the
+  Python attribute are named `request_metadata` — the name was chosen at
+  the column level, not just the ORM level, specifically to avoid
+  colliding with `DeclarativeBase`'s reserved `metadata` class attribute.
+  There is no separate override mapping; `mapped_column(JSONB, ...)`
+  needs no explicit column-name argument.
 - THE SYSTEM SHALL define `relationship()` attributes back to `requestor`
   and `assignee` (both on `User`, both requiring `foreign_keys=` per R2),
   and forward to `status_history` and `comments` collections.
