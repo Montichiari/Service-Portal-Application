@@ -66,17 +66,31 @@
 
 @layer components {
   /*
-   * Shared width bound for single-action form pages — design-tokens.md
-   * "Content width" (single-action form: 640px, centered in the content
-   * area). Centered with auto inline margins, which resolve to zero once the
-   * content area is narrower than --content-form, so below --bp-mobile the
-   * column is fluid and full-width with no separate rule needed. Reuse this
-   * class on future single-action forms instead of re-solving alignment
-   * per page; detail/dashboard content stays left-aligned and must not use it.
+   * Content-width bounds — design-tokens.md "Content width". Every in-app
+   * content type is centered in the content area at its own max-width: one
+   * alignment rule, the classes differ only in how wide they cap. The auto
+   * inline margins resolve to zero once the content area is narrower than the
+   * cap, so below --bp-mobile each column is fluid and full-width with no
+   * separate rule. AppShell owns the surrounding padding — pages using these
+   * add none.
+   *
+   *   .content-form      single-action forms (Submit Service Request)  640px
+   *   .content-dashboard table / dashboard   (Requests Dashboard)      1040px
+   *
+   * A .content-detail (720px) for the detail views joins this list when
+   * Task 6 is built; it centers the same way, adding only its own max-width.
    */
+  .content-form,
+  .content-dashboard {
+    margin-inline: auto;
+  }
+
   .content-form {
     max-width: var(--content-form);
-    margin-inline: auto;
+  }
+
+  .content-dashboard {
+    max-width: var(--content-dashboard);
   }
 }
 

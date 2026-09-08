@@ -113,10 +113,14 @@ not render "General" without `<SelectItem value="general">General
 - [ ] Table styling matches `design.md` (rule-separated rows, not per-row
       cards).
 - [ ] Content bounded to the 1040px table/dashboard max-width from
-      `design-tokens.md`, left-aligned. Verified at both ~1280px and
-      ~375px viewport widths — table remains usable (not overflowing
-      unreadably or requiring horizontal scroll to see the primary
-      columns) at mobile width.
+      `design-tokens.md`, CENTERED (not left-aligned — this was revised
+      after Task 5's first pass). Verified at both ~1280px and ~375px
+      viewport widths.
+- [ ] At mobile width (below `--bp-mobile`), the "Last updated" column is
+      hidden — Title and Status remain, same `Table` component with fewer
+      columns rendered, not a separate stacked-card layout. This is a
+      confirmed decision, not a placeholder for later — do not build a
+      card-based mobile view for this page.
 
 ---
 
@@ -136,8 +140,8 @@ not render "General" without `<SelectItem value="general">General
 - [ ] "Back to request details" link returns to `/requests/:id`.
 - [ ] Both pages read-only — no form validation present.
 - [ ] Content bounded to the 720px detail-view max-width from
-      `design-tokens.md`, left-aligned. Verified at both ~1280px and
-      ~375px viewport widths on both pages.
+      `design-tokens.md`, CENTERED (not left-aligned). Verified at both
+      ~1280px and ~375px viewport widths on both pages.
 
 ---
 

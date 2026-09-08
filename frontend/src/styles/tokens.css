@@ -60,11 +60,14 @@
   --radius-card: 4px;
   --border-hairline: 1px;
 
-  /* Content-width bound for single-action form pages — design-tokens.md
-     "Content width" table (single-action form: 640px, centered). The
-     detail-view (720px) and table/dashboard (1040px) bounds join this group
-     when those pages are built; they stay left-aligned per that table. */
+  /* Content-width bounds — design-tokens.md "Content width" table. Every
+     in-app content type is centered in the content area at its max-width
+     (one alignment rule; see the .content-* classes in index.css):
+     - single-action form: 640px  (--content-form, via .content-form)
+     - table / dashboard:  1040px (--content-dashboard, via .content-dashboard)
+     The detail-view (720px) bound joins this group when that page is built. */
   --content-form: 640px;
+  --content-dashboard: 1040px;
 
   /* Sole responsive breakpoint — design-tokens.md "Breakpoints". Below this
      the AppShell sidebar collapses to a top bar and content padding drops to

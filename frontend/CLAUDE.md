@@ -72,13 +72,15 @@ it there first, don't hardcode it in a component.
 - `AppShell` wraps all in-app pages (post-login); `AuthShell` wraps only
   Login/Register. Don't reuse one for the other.
 - Content width and alignment follow `design-tokens.md`'s "Content width"
-  table, which splits by task type — not one blanket rule:
-  - Single-action forms: 640px, **centered** in the content area. Use the
-    shared `.content-form` class (`index.css`, backed by the `--content-form`
-    token); don't re-solve centering per page.
-  - Detail views 720px and tables/dashboard 1040px: **left-aligned**.
-    Empty space to the right of the max-width is expected, not a bug.
-  - Never full-viewport.
+  table: every in-app content type is **centered** in the content area at
+  its own max-width — one alignment rule, differing only by width. Use the
+  shared `.content-*` classes (`index.css`, backed by `--content-*` tokens);
+  don't re-solve alignment per page.
+  - Single-action forms: 640px — `.content-form`.
+  - Tables / dashboard: 1040px — `.content-dashboard`.
+  - Detail views: 720px — same pattern, class added with Task 6.
+  - Never full-viewport. Even space on both sides above the max-width is
+    expected, not a bug.
 - Responsive is mobile-first off one breakpoint: `--bp-mobile` (768px) is
   wired to Tailwind's `md` variant (`--breakpoint-md` in `index.css`), so
   bare utilities target < 768px and `md:` targets ≥ 768px. Below the

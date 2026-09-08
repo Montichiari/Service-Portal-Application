@@ -52,8 +52,9 @@ Medium: `#C77D22` (outline), High: `#B3261E` (filled).
 
 - Persistent dark sidebar (`--chrome`) + light content area (`--surface`).
   Sidebar is the wayfinding device — content never uses dark chrome.
-- Alignment depends on task type, not a blanket rule — see Content width
-  below for the exact split.
+- All in-app content is centered within the content area at its max-width
+  — one consistent rule, no per-page-type exceptions. See Content width
+  below for the exact values.
 - Cards: **flat**, hairline `--border`, no box-shadow, no border-radius above
   4px. Explicitly avoiding the soft-shadow rounded-card-kit default.
 - Forms: two-column field grouping where fields are logically related (label
@@ -65,29 +66,26 @@ Medium: `#C77D22` (outline), High: `#B3261E` (filled).
 ### Content width
 
 Content never spans the full remaining viewport — width is bounded by what
-the content type actually needs, not by the available space:
+the content type actually needs, not by the available space. All content
+types are centered within the content area at these max-widths:
 
-| Content type       | Max-width | Alignment                    | Applies to                                 |
-| ------------------ | --------- | ---------------------------- | ------------------------------------------ |
-| Single-action form | 640px     | **Centered** in content area | Submit Service Request                     |
-| Detail view        | 720px     | Left-aligned                 | View Request Details, Track Request Status |
-| Table / dashboard  | 1040px    | Left-aligned                 | Requests Dashboard                         |
+| Content type       | Max-width | Applies to                                 |
+| ------------------ | --------- | ------------------------------------------ |
+| Single-action form | 640px     | Submit Service Request                     |
+| Detail view        | 720px     | View Request Details, Track Request Status |
+| Table / dashboard  | 1040px    | Requests Dashboard                         |
 
 Login/Register are separate — they use `AuthShell` (full-viewport centered
 card, no sidebar), not this table.
 
-**Why the split:** browse/scan content (tables, detail/reference views)
-anchors to a fixed left edge so the eye can track down rows or fields
-consistently. Single-action content (a form where filling it out is the
-only task on the page) centers, the same way `AuthShell` already centers
-Login/Register — it signals "this is the one thing to do here" rather than
-competing with an edge. This is a deliberate exception, not a drift from
-the left-alignment default — if a page's category is ambiguous, default to
-left-aligned and revisit only if it feels wrong once built.
+**Note on tables specifically:** centering a wide table trades off some
+scan-ability (the eye travels further from a fixed left edge to reach the
+first column on very wide viewports) for overall layout consistency across
+the app. This was a deliberate choice, not an oversight — don't left-align
+just the table to "fix" it.
 
-For left-aligned content, remaining space to the right of the max-width
-stays empty — that's expected, not a bug. For centered content, remaining
-space splits evenly on both sides.
+Remaining space splits evenly on both sides of the centered content at
+desktop widths above the max-width — that's expected, not a bug.
 
 ### Breakpoints
 
