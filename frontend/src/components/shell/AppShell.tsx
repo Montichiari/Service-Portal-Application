@@ -1,9 +1,23 @@
+import { useState } from 'react'
 import type { ReactNode } from 'react'
+import { MenuIcon, XIcon } from 'lucide-react'
+import { cn } from '@/lib/utils'
 
 /**
- * Persistent dark sidebar (chrome tokens) + light content area. Wraps every
- * in-app page post-login. The sidebar is the sole wayfinding device; content
- * never uses dark chrome.
+ * App frame for every in-app (post-login) page: dark chrome nav + light
+ * content area. The nav is the sole wayfinding device; content never uses
+ * dark chrome.
+ *
+ * Responsive behaviour per design-tokens.md "Breakpoints" (--bp-mobile, wired
+ * to Tailwind's `md` variant in index.css):
+ * - `md` and up: nav is a persistent 240px left sidebar; content padding 32px.
+ * - below `md`: nav is a full-width top bar (brand + hamburger toggle); the
+ *   links collapse into a drawer opened by the toggle; content padding 16px.
+ *
+ * The breakpoint itself is pure CSS (Tailwind variants), so no resize/
+ * matchMedia listener is involved. `menuOpen` only drives the sub-`md` drawer;
+ * at/above `md` the nav shows via `md:flex` and the toggle is `md:hidden`, so
+ * a stale value there is harmless.
  *
  * Nav is exactly the two top-level destinations from design.md's routing
  * table. Links are plain anchors for now — active state and client-side
@@ -19,17 +33,42 @@ export interface AppShellProps {
 }
 
 export function AppShell({ children }: AppShellProps) {
+  const [menuOpen, setMenuOpen] = useState(false)
+
   return (
-    <div className="flex min-h-screen">
-      <aside className="flex w-sidebar shrink-0 flex-col gap-6 bg-chrome p-4">
-        <span className="px-3 text-subhead font-bold text-chrome-text-active">
-          Service Portal
-        </span>
-        <nav className="flex flex-col gap-1">
+    <div className="flex min-h-screen flex-col md:flex-row">
+      <aside className="shrink-0 bg-chrome p-4 md:flex md:w-sidebar md:flex-col md:gap-6">
+        <div className="flex items-center justify-between md:block">
+          <span className="px-3 text-subhead font-bold text-chrome-text-active">
+            Service Portal
+          </span>
+          <button
+            type="button"
+            aria-label="Toggle navigation menu"
+            aria-expanded={menuOpen}
+            aria-controls="app-shell-nav"
+            onClick={() => setMenuOpen((open) => !open)}
+            className="rounded-card p-2 text-chrome-text transition-colors hover:text-chrome-text-active md:hidden"
+          >
+            {menuOpen ? (
+              <XIcon className="size-5" />
+            ) : (
+              <MenuIcon className="size-5" />
+            )}
+          </button>
+        </div>
+        <nav
+          id="app-shell-nav"
+          className={cn(
+            'mt-4 flex-col gap-1 md:mt-0 md:flex',
+            menuOpen ? 'flex' : 'hidden',
+          )}
+        >
           {NAV_ITEMS.map((item) => (
             <a
               key={item.href}
               href={item.href}
+              onClick={() => setMenuOpen(false)}
               className="rounded-card px-3 py-2 text-body font-semibold text-chrome-text transition-colors hover:text-chrome-text-active"
             >
               {item.label}
@@ -37,7 +76,7 @@ export function AppShell({ children }: AppShellProps) {
           ))}
         </nav>
       </aside>
-      <main className="min-w-0 flex-1 bg-surface p-6 text-text-primary">
+      <main className="min-w-0 flex-1 bg-surface p-4 text-text-primary md:p-8">
         {children}
       </main>
     </div>

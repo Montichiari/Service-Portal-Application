@@ -52,6 +52,16 @@
 
   --spacing-sidebar: var(--sidebar-width);
   --spacing-auth-card: var(--auth-card-width);
+
+  /*
+   * Tailwind's `md` variant IS the design-tokens.md "Breakpoints" line
+   * (--bp-mobile). `md:` = "at/above the mobile breakpoint"; unprefixed
+   * utilities are the sub-768px mobile state (mobile-first). AppShell's
+   * sidebar-collapse and the 32px->16px content-padding drop key off this.
+   * Must be a literal: it lands in a `@media` condition, where `var()` is
+   * invalid — keep this in sync with --bp-mobile in tokens.css (768px).
+   */
+  --breakpoint-md: 768px;
 }
 
 @layer components {

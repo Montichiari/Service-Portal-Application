@@ -1,7 +1,7 @@
 # frontend/CLAUDE.md
 
 Persistent context for Claude Code sessions working in `frontend/`. Read
-this before starting any task from `specs/phase-2/tasks.md`.
+this before starting any task from `specs/frontend-phase/tasks.md`.
 
 ## Project context
 
@@ -15,12 +15,12 @@ in this phase — see Non-goals below.
 
 code comments, reference them instead)
 
-- `specs/phase-2/design-tokens.md` — color, type, layout tokens
-- `specs/phase-2/design.md` — routing, nav, component inventory, per-page
+- `specs/frontend-phase/design-tokens.md` — color, type, layout tokens
+- `specs/frontend-phase/design.md` — routing, nav, component inventory, per-page
   data strategy
-- `specs/phase-2/requirements.md` — field lists, validation rules,
+- `specs/frontend-phase/requirements.md` — field lists, validation rules,
   EARS-style behavior per page
-- `specs/phase-2/tasks.md` — the 6 ordered tasks and their acceptance
+- `specs/frontend-phase/tasks.md` — the 6 ordered tasks and their acceptance
   criteria
 
 ## Tech stack
@@ -43,8 +43,11 @@ frontend/src/
     SubmitRequestPage.tsx
     RequestDetailsPage.tsx
     RequestStatusPage.tsx
-  schemas/          # zod schemas, one file per form, mirroring
-                    # openapi.yaml request bodies
+  schemas/          # zod schemas, one file per form. Built from
+                    # requirements.md this phase; no openapi.yaml in the
+                    # repo yet — ignore that mirroring note until one is
+                    # added in a later phase, then reconcile (see Form
+                    # pattern)
   context/
     AuthContext.tsx  # role state only, no real auth
   data/              # hardcoded mock objects/arrays used by read-only pages
@@ -68,15 +71,36 @@ it there first, don't hardcode it in a component.
 - Cards are flat: hairline border, no shadow, ≤4px radius.
 - `AppShell` wraps all in-app pages (post-login); `AuthShell` wraps only
   Login/Register. Don't reuse one for the other.
+- Content width and alignment follow `design-tokens.md`'s "Content width"
+  table, which splits by task type — not one blanket rule:
+  - Single-action forms: 640px, **centered** in the content area. Use the
+    shared `.content-form` class (`index.css`, backed by the `--content-form`
+    token); don't re-solve centering per page.
+  - Detail views 720px and tables/dashboard 1040px: **left-aligned**.
+    Empty space to the right of the max-width is expected, not a bug.
+  - Never full-viewport.
+- Responsive is mobile-first off one breakpoint: `--bp-mobile` (768px) is
+  wired to Tailwind's `md` variant (`--breakpoint-md` in `index.css`), so
+  bare utilities target < 768px and `md:` targets ≥ 768px. Below the
+  breakpoint `AppShell` collapses the sidebar to a top bar with a menu
+  toggle and drops its own content padding from 32px to 16px (`AppShell`
+  owns that padding — pages don't add their own), and the max-widths above
+  go fluid. See `design-tokens.md` Breakpoints.
+- **Check every page at both a desktop (~1280px) and mobile (~375px) width
+  before considering a task done** — not optional polish, it's part of every
+  task's acceptance criteria going forward.
 
 ## Form pattern
 
 Every form: `react-hook-form` + a `zod` schema colocated in `schemas/`,
-named after the resource it mirrors (e.g. `submitRequestSchema.ts` mirrors
-the `ServiceRequest` creation body in `openapi.yaml`). This mirroring is
-required even though no request is sent — it's what prevents a schema
-rewrite when Phase 3 wires up the real backend. On valid submit: reset form,
-show success state, no network call, no console-logged "would submit" stub.
+named after the resource it mirrors. Where `requirements.md` fully
+specifies a form's fields and validation (current state for all forms in
+this phase — there is no `openapi.yaml` in the repo yet), build the schema
+directly from `requirements.md`. If `openapi.yaml` is added in a later
+phase, schemas should be reconciled against it then. This is what prevents
+a schema rewrite when Phase 3 wires up the real backend. On valid submit:
+reset form, show success state, no network call, no console-logged "would
+submit" stub.
 
 ## Auth guard pattern
 

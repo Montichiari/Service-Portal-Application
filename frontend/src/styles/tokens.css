@@ -66,6 +66,14 @@
      when those pages are built; they stay left-aligned per that table. */
   --content-form: 640px;
 
+  /* Sole responsive breakpoint — design-tokens.md "Breakpoints". Below this
+     the AppShell sidebar collapses to a top bar and content padding drops to
+     16px. Mirrored as --breakpoint-md in index.css (Tailwind's `md` variant
+     drives the layout); this token is for JS width checks — keep the two in
+     sync. Can't be shared via var(): --breakpoint-md lands in a @media
+     condition, where var() is invalid. */
+  --bp-mobile: 768px;
+
   /* ── Derived / not in design-tokens.md ──────────────────────── */
   --text-on-fill: #ffffff;
   --focus-ring: var(--accent);
