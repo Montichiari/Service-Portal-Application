@@ -52,7 +52,8 @@ Medium: `#C77D22` (outline), High: `#B3261E` (filled).
 
 - Persistent dark sidebar (`--chrome`) + light content area (`--surface`).
   Sidebar is the wayfinding device — content never uses dark chrome.
-- Left-aligned throughout. No centered narrow columns.
+- Alignment depends on task type, not a blanket rule — see Content width
+  below for the exact split.
 - Cards: **flat**, hairline `--border`, no box-shadow, no border-radius above
   4px. Explicitly avoiding the soft-shadow rounded-card-kit default.
 - Forms: two-column field grouping where fields are logically related (label
@@ -60,6 +61,43 @@ Medium: `#C77D22` (outline), High: `#B3261E` (filled).
 - Tables: rule-separated rows, not bordered cards per row.
 - Dashboard: card grid + right-rail summary widgets (stacked panels), no
   photographic hero.
+
+### Content width
+
+Content never spans the full remaining viewport — width is bounded by what
+the content type actually needs, not by the available space:
+
+| Content type       | Max-width | Alignment                    | Applies to                                 |
+| ------------------ | --------- | ---------------------------- | ------------------------------------------ |
+| Single-action form | 640px     | **Centered** in content area | Submit Service Request                     |
+| Detail view        | 720px     | Left-aligned                 | View Request Details, Track Request Status |
+| Table / dashboard  | 1040px    | Left-aligned                 | Requests Dashboard                         |
+
+Login/Register are separate — they use `AuthShell` (full-viewport centered
+card, no sidebar), not this table.
+
+**Why the split:** browse/scan content (tables, detail/reference views)
+anchors to a fixed left edge so the eye can track down rows or fields
+consistently. Single-action content (a form where filling it out is the
+only task on the page) centers, the same way `AuthShell` already centers
+Login/Register — it signals "this is the one thing to do here" rather than
+competing with an edge. This is a deliberate exception, not a drift from
+the left-alignment default — if a page's category is ambiguous, default to
+left-aligned and revisit only if it feels wrong once built.
+
+For left-aligned content, remaining space to the right of the max-width
+stays empty — that's expected, not a bug. For centered content, remaining
+space splits evenly on both sides.
+
+### Breakpoints
+
+| Token         | Value | Behavior below this width                                                                                                                                                                         |
+| ------------- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--bp-mobile` | 768px | Sidebar collapses to a top bar with a menu toggle (not persistent-visible); content padding reduces from 32px to 16px; all max-widths above become `100%` (fluid, minus padding) instead of fixed |
+
+Every page built against `AppShell` must be checked at both a desktop width
+(~1280px) and a mobile width (~375px) before a task is considered done —
+this applies to every task from Task 1 onward, not just forms.
 
 ## Principles
 

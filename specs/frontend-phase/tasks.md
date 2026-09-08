@@ -112,6 +112,11 @@ not render "General" without `<SelectItem value="general">General
 - [ ] "New request" navigates to `/requests/new`.
 - [ ] Table styling matches `design.md` (rule-separated rows, not per-row
       cards).
+- [ ] Content bounded to the 1040px table/dashboard max-width from
+      `design-tokens.md`, left-aligned. Verified at both ~1280px and
+      ~375px viewport widths — table remains usable (not overflowing
+      unreadably or requiring horizontal scroll to see the primary
+      columns) at mobile width.
 
 ---
 
@@ -130,6 +135,9 @@ not render "General" without `<SelectItem value="general">General
       `Timeline`, filled/hollow states correct, per section 6.
 - [ ] "Back to request details" link returns to `/requests/:id`.
 - [ ] Both pages read-only — no form validation present.
+- [ ] Content bounded to the 720px detail-view max-width from
+      `design-tokens.md`, left-aligned. Verified at both ~1280px and
+      ~375px viewport widths on both pages.
 
 ---
 
