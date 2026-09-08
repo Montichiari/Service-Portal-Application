@@ -64,9 +64,10 @@
      in-app content type is centered in the content area at its max-width
      (one alignment rule; see the .content-* classes in index.css):
      - single-action form: 640px  (--content-form, via .content-form)
-     - table / dashboard:  1040px (--content-dashboard, via .content-dashboard)
-     The detail-view (720px) bound joins this group when that page is built. */
+     - detail view:        720px  (--content-detail, via .content-detail)
+     - table / dashboard:  1040px (--content-dashboard, via .content-dashboard) */
   --content-form: 640px;
+  --content-detail: 720px;
   --content-dashboard: 1040px;
 
   /* Sole responsive breakpoint — design-tokens.md "Breakpoints". Below this

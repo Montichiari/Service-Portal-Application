@@ -74,19 +74,22 @@
    * separate rule. AppShell owns the surrounding padding — pages using these
    * add none.
    *
-   *   .content-form      single-action forms (Submit Service Request)  640px
-   *   .content-dashboard table / dashboard   (Requests Dashboard)      1040px
-   *
-   * A .content-detail (720px) for the detail views joins this list when
-   * Task 6 is built; it centers the same way, adding only its own max-width.
+   *   .content-form      single-action forms (Submit Service Request)      640px
+   *   .content-detail    detail views (View Request Details, Track Status) 720px
+   *   .content-dashboard table / dashboard   (Requests Dashboard)          1040px
    */
   .content-form,
+  .content-detail,
   .content-dashboard {
     margin-inline: auto;
   }
 
   .content-form {
     max-width: var(--content-form);
+  }
+
+  .content-detail {
+    max-width: var(--content-detail);
   }
 
   .content-dashboard {
