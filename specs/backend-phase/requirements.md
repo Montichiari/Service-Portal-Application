@@ -22,6 +22,12 @@ do not redefine or modify those two files.
 - THE SYSTEM SHALL NOT apply `TimestampMixin` to `RefreshToken`,
   `StatusHistory`, or `Status` — see `design.md` for each one's actual
   timestamp columns, if any.
+- THE SYSTEM SHALL declare every timestamp column — whether via
+  `TimestampMixin` or a plain column on `RefreshToken`/`StatusHistory` —
+  with `DateTime(timezone=True)` explicit in `mapped_column(...)`.
+  `Mapped[datetime]` alone resolves to Postgres `TIMESTAMP WITHOUT TIME
+ZONE`, not the `TIMESTAMPTZ` every timestamp column in `design.md`'s DDL
+  specifies.
 
 ## R2 — User
 
@@ -74,7 +80,8 @@ do not redefine or modify those two files.
 
 - THE SYSTEM SHALL define a `StatusHistory` model mapped to
   `status_history`, with `changed_at` as its only timestamp column
-  (server-default `now()`, no `updated_at` — see R1).
+  (server-default `now()`, no `updated_at` — see R1), declared with
+  `DateTime(timezone=True)` explicit per R1's requirement.
 - THE SYSTEM SHALL define `service_request_id` and `status_id` as NOT
   NULL FKs, and `changed_by_id` as a nullable FK — this nullability is
   intentional (see design discussion in chat: a status change may be
@@ -92,7 +99,8 @@ do not redefine or modify those two files.
 
 - THE SYSTEM SHALL define a `RefreshToken` model mapped to
   `refresh_tokens`, with a plain `created_at` column only (no
-  `updated_at` — see R1) and nullable `revoked_at`.
+  `updated_at` — see R1) and nullable `revoked_at`, both declared with
+  `DateTime(timezone=True)` explicit per R1's requirement.
 
 ## R8 — Cascade / delete behavior
 

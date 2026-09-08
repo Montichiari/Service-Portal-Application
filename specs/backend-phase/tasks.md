@@ -123,6 +123,11 @@ first — this is one coherent revision, not five incremental ones, per R9).
       (`\d+ <table>` in `psql`) is spot-checked against `design.md` for at
       least the tables with the trickiest constraints: `service_requests`
       (CHECK + JSONB default) and `status_history` (nullable FK).
+- [ ] The same `psql \d+` spot-check confirms every timestamp column
+      across all six tables renders as `timestamp with time zone`, not
+      `timestamp without time zone` — this was found to silently default
+      wrong once already (see Task 2 correction) and is easy to miss
+      without directly inspecting the applied column type.
 
 ---
 
