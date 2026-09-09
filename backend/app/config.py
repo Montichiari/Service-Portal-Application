@@ -11,6 +11,13 @@ class Settings(BaseSettings):
     )
 
     DATABASE_URL: str
+    # Dedicated database for the automated schema-contract test suite
+    # (backend/tests/db/). Same docker-compose Postgres service as
+    # DATABASE_URL, a separate database — the suite creates it and migrates
+    # it itself. Must never equal DATABASE_URL; conftest.py enforces that.
+    TEST_DATABASE_URL: str = (
+        "postgresql+psycopg2://portal:portal@localhost:5433/service_portal_test"
+    )
     JWT_SECRET_KEY: str
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
