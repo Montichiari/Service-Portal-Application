@@ -56,13 +56,18 @@ Auth guard pattern section.)
 
 **Acceptance criteria**:
 
-- [ ] A short written diff-from-contract report, not a rewrite of the
+- [x] A short written diff-from-contract report, not a rewrite of the
       contract document itself
-- [ ] No files modified
+- [x] No files modified
 
 **Stop here.** Review the report before starting T-AUTH-1 — if drift is
 significant, the later Auth tasks in this group may need their acceptance
 criteria adjusted first.
+
+**Complete — zero drift found.** All five files matched
+`frontend-contract.md` exactly. Findings folded into `T-AUTH-5`'s scope and
+`frontend/CLAUDE.md` (the `routes.tsx` absence, the snake_case casing
+decision) rather than left in this task's own notes.
 
 ---
 
@@ -77,23 +82,41 @@ infrastructure).
 
 **Scope**:
 
-- Password hashing (`passlib[bcrypt]` or equivalent) — hash on register,
-  verify on login. Never store or log a plaintext password.
+- Password hashing (`bcrypt` directly — **not** `passlib[bcrypt]`; passlib
+  1.7.4 is unmaintained and its backend probe breaks against bcrypt ≥4.1,
+  raising `ValueError` on every hash call. Confirmed during `T-AUTH-1`,
+  rationale recorded in `security.py`'s docstring. Still "equivalent" per
+  this task's original scope, just naming the specific library now that
+  it's settled) — hash on register, verify on login. Never store or log a
+  plaintext password. Export a `MAX_PASSWORD_BYTES` constant (72, bcrypt's
+  hard limit) for the register schema to validate against (`AUTH-16`).
 - JWT encode/decode helpers matching the claims shape in `design.md §1`
   (`sub`, `role`, `iat`, `exp`, `jti`).
 - Cookie-setting helpers for access token (1 hr) and refresh token
   (30 day), `httpOnly` / `Secure` / `SameSite=Lax`, per `design.md §1` and
-  `AUTH-6`.
+  `AUTH-6`. Also a `clear_auth_cookies` helper alongside the setters —
+  `AUTH-12` (logout) needs matching attributes to actually clear them, and
+  that logic belongs in the same module as the setters, not split out.
 - Refresh-token hashing (store the hash in `refresh_tokens.token_hash`,
   never the raw token) and a lookup/verify helper.
 
 **Acceptance criteria**:
 
-- [ ] Unit tests: a hashed password verifies correctly and a wrong
+- [x] Unit tests: a hashed password verifies correctly and a wrong
       password fails verification
-- [ ] Unit tests: a JWT round-trips (encode then decode yields the same
+- [x] Unit tests: a JWT round-trips (encode then decode yields the same
       claims) and an expired/tampered token fails decode
-- [ ] No endpoint routes added in this task
+- [x] No endpoint routes added in this task
+
+**Complete.** 38 new tests, all passing, mutation-tested (14 deliberate
+defects, all caught) per `backend/CLAUDE.md`'s "verify a test can actually
+fail" rule. One real gap the mutation pass surfaced worth knowing about
+generically, not just for this task: a tamper test that corrupts a token's
+encoding (rather than its _meaning_) can pass for the wrong reason — it
+fails before reaching the check you actually meant to test. Worth
+remembering next time you write a tamper/corruption test anywhere in this
+project: corrupt something that's still well-formed, or you're not testing
+what you think you're testing.
 
 ---
 
@@ -140,11 +163,22 @@ future slice depends on — build them once, here, correctly.
 
 **Goal**: The five real endpoints, built on T-AUTH-1 and T-AUTH-2.
 
-**Covers**: `AUTH-1` through `AUTH-15`.
+**Covers**: `AUTH-1` through `AUTH-16`.
+
+**Prerequisite, found by `T-AUTH-1`'s report**: `db_session` currently
+lives in `tests/db/conftest.py`, visible only to that package. This task's
+testing convention (a cookie-persisting client for
+register → login → authenticated-call sequences, per
+`backend/CLAUDE.md`'s Testing section) needs it from `tests/api/` too —
+promote it to a top-level `tests/conftest.py` as the first step of this
+task, before writing that fixture, not as a fix-up after a test fails to
+find it.
 
 **Scope**: Implement in this order (each depends on the last):
 
-1. `POST /auth/register` — `AUTH-1` through `AUTH-5`
+1. `POST /auth/register` — `AUTH-1` through `AUTH-5`, `AUTH-16` (the
+   password-max-length check uses `security.py`'s exported
+   `MAX_PASSWORD_BYTES` — don't re-hardcode `72` in the Pydantic schema)
 2. `POST /auth/login` — `AUTH-6` through `AUTH-8`
 3. `GET /auth/me` — `AUTH-14`, `AUTH-15` (simplest protected route, good
    smoke test for T-AUTH-2's dependency)
@@ -161,6 +195,12 @@ future slice depends on — build them once, here, correctly.
       applied
 - [ ] `AUTH-5`: no response body anywhere contains `password` or
       `password_hash`
+- [ ] `AUTH-3`: an 11-character password returns `422`; a 12-character
+      all-lowercase password with no digit or symbol succeeds — confirms
+      the rule is length-only, not silently composition-gated
+- [ ] `AUTH-16`: a password over 72 bytes returns `422` with
+      `fields.password` populated — not a `500`; include a case with a
+      multi-byte-character password under 72 characters but over 72 bytes
 - [ ] `AUTH-6`: valid login sets both cookies with correct attributes and
       expiries
 - [ ] `AUTH-7`: wrong email and wrong password produce byte-identical
@@ -212,19 +252,60 @@ starting):
 - `AuthContext`: replace plain `useState` with a real session — call
   `GET /auth/me` on mount to bootstrap state (resolves
   `frontend-contract.md §1.2`'s "lost on reload" problem structurally,
-  not by patching around it)
+  not by patching around it). The context's shape widens from `role`
+  alone to the full `/auth/me` response (`id`, `first_name`, `last_name`,
+  `role`) — note `§1.5`'s finding that zero components currently consume
+  `role`, so this is a clean widen with nothing to migrate
 - `RegisterPage`/`registerSchema`: split `fullName` into `first_name` +
-  `last_name` fields (`design.md §0` decision 5); wire the real submit to
+  `last_name` fields, named exactly that (snake_case, per
+  `frontend/CLAUDE.md`'s Naming exception for API-shaped schemas —
+  `design.md §0` decision 5), each 1–100 chars. `password`: min 12 chars
+  (`AUTH-3`) — **length only, no composition regex** (no required
+  uppercase/digit/symbol). This was decided deliberately during spec
+  review, not left unspecified — don't add a composition regex "to be
+  thorough"; that's reintroducing a rule that was considered and rejected,
+  not filling a gap. For a max: `AUTH-16`'s real limit is 72 _bytes_, not
+  characters, so a client-side `.max(72)` on string length is a false
+  guarantee (an emoji-heavy password can clear that char count and still
+  fail server-side). Either measure bytes client-side too (`new
+TextEncoder().encode(password).length`) or skip a client max entirely
+  and let the server's `422` be the sole authority — don't ship a
+  client-side check that gives false confidence. The prototype's register
+  form has never had a max length on any field; against the real API
+  that's a gap to close, not a style preference. `confirmPassword` stays
+  client-only validation — it has no backend counterpart and must never be
+  included in the `POST /auth/register` body; wire the real submit to
   `POST /auth/register`; remove the fake `submitted`-then-discard flow
-  (`frontend-contract.md §2.3`)
+  (`frontend-contract.md §2.3`) — note the current `onValidSubmit` doesn't
+  even bind its parameter, so this is a real rewrite of that handler, not
+  a small edit to it
 - `LoginPage`/`loginSchema`: rename `username` → `email` with email-format
   validation (`design.md §0` decision 6); remove `DEMO_USERNAME` /
   `DEMO_PASSWORD` and the "Continue as User/Admin" demo buttons entirely
-  (`frontend-contract.md §2.2`'s Path A and Path B both go); wire the real
-  submit to `POST /auth/login`; unify the post-login destination (the
-  contract flagged Path A and B disagreeing on `/requests/new` vs `/` —
-  pick one, `/` is reasonable, and there's only one path now so the
-  disagreement resolves itself)
+  (`frontend-contract.md §2.2`'s Path A and Path B both go — this also
+  strands the `Role` type import, currently used only to type
+  `continueAs`; remove that import in the same edit, not as a follow-up
+  lint fix); unify the post-login destination (the contract flagged Path A
+  and B disagreeing on `/requests/new` vs `/` — pick one, `/` is
+  reasonable, and there's only one path now so the disagreement resolves
+  itself); wire the real submit to `POST /auth/login`; render the
+  server's `error.message` on failure (`AUTH-7`) instead of the current
+  hardcoded `"Incorrect username or password"` string — the real message
+  is worded differently (`"Incorrect email or password."`), and per
+  `frontend/CLAUDE.md`'s Error surfacing section this should come from the
+  response, not a local constant, even where the two happen to say
+  something similar
+- Both forms: disable the submit button for the duration of the in-flight
+  request, not just after success. `RegisterPage`'s existing
+  `disabled={submitted}` was a harmless cosmetic gap against fake
+  submission (`frontend-contract.md §8.2`) — against a real network call
+  it now permits genuine double-submission, so this is a correctness fix,
+  not polish
+- Extract the `Field` wrapper component, currently duplicated
+  byte-for-byte across `LoginPage` and `RegisterPage`
+  (`frontend-contract.md §8.3`). Both pages are being edited in this task,
+  which is exactly the condition `frontend/CLAUDE.md`'s Error surfacing
+  section names as the trigger to extract it here rather than defer it
 - Add a sign-out control calling `POST /auth/logout` — `AppShell`
   currently has none (`frontend-contract.md §2.1`)
 
@@ -238,12 +319,20 @@ concern from wiring auth itself. Flag it, don't fix it here.
 - [ ] Registering through the UI creates a real user (verify via a
       backend query or the login flow immediately after)
 - [ ] Logging in with wrong credentials shows one error message (matching
-      `AUTH-7`'s non-distinguishing behavior) — UI-level confirmation of a
-      backend guarantee
+      `AUTH-7`'s non-distinguishing behavior), rendered from
+      `error.message` in the response — UI-level confirmation of a
+      backend guarantee, not a hardcoded local string
 - [ ] Reloading the page after login preserves the session (via
       `GET /auth/me`, not in-memory state)
-- [ ] No reference to `DEMO_USERNAME`, `DEMO_PASSWORD`, or the demo role
-      buttons remains anywhere in the diff
+- [ ] No reference to `DEMO_USERNAME`, `DEMO_PASSWORD`, the demo role
+      buttons, or the now-unused `Role` type import remains anywhere in
+      the diff
+- [ ] Both submit buttons are disabled for the duration of their request,
+      not only after success
+- [ ] `Field` exists as one shared component imported by both pages, not
+      duplicated
+- [ ] `confirmPassword` never appears in the network request body sent to
+      `POST /auth/register`
 
 ---
 

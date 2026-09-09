@@ -42,8 +42,9 @@ against a generated spec that doesn't exist.
 
 ## Tech stack
 
-React + TypeScript + Vite · `react-hook-form` + `zod` · `shadcn/ui` ·
-`react-router` for routing. **No TanStack Query** — decided explicitly in
+React + TypeScript + Vite · `react-hook-form` + `zod` (v4 — `z.email()`
+top-level form is correct for this version, don't "fix" it to the older
+`z.string().email()` form) · `shadcn/ui` · `react-router-dom` for routing. **No TanStack Query** — decided explicitly in
 `specs/api-phase/tasks.md`'s conventions section, not merely deferred for
 lack of something to fetch (there now is). A hand-rolled `src/lib/api.ts`
 fetch wrapper covers this phase's needs (no caching or background refetch
@@ -76,7 +77,9 @@ frontend/src/
                     # still importing from here after its Group in
                     # tasks.md is done is a bug, not a leftover
   lib/
-    api.ts           # the one sanctioned fetch client — see below
+    api.ts           # CONFIRMED NOT YET CREATED (only utils.ts exists in
+                    # lib/ today). Built from zero in T-AUTH-4 — the one
+                    # sanctioned fetch client once it exists.
   routes.tsx         # CONFIRMED NOT PRESENT. Documented in the prototype
                     # spec below (Auth guard pattern) as if it existed,
                     # but Task 3 was never landed — routing is inline in
@@ -200,6 +203,15 @@ established, don't invent a second banner component.
 
 PascalCase components, camelCase functions/variables, one component per
 file, filename matches component name.
+
+**Exception, decided during `T-AUTH-0` review**: zod schemas and TS types
+that mirror an API request or response body directly use **snake_case**
+field names, matching the wire format exactly (`first_name`, `last_name`)
+— no translation layer at the `api.ts` boundary. Everything else (local
+component state, function names, non-API-shaped props) stays camelCase per
+the rule above. If a schema is API-shaped, it's the exception; if it's
+purely local, it isn't — don't let the exception creep into local-only
+types "for consistency."
 
 ## Task workflow
 

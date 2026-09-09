@@ -228,13 +228,24 @@ Request:
   "first_name": "Daniel",
   "last_name": "Osei",
   "email": "daniel.osei@example.com",
-  "password": "at-least-8-chars"
+  "password": "at-least-12-characters-long"
 }
 ```
 
 - `first_name`, `last_name`: 1–100 chars (matches `users` column limits)
 - `email`: valid email, unique — 409 `CONFLICT` if already registered
-- `password`: min 8 chars. **Not** echoed or returned in any response, ever.
+- `password`: min 12 chars, **max 72 bytes** (`AUTH-16`) — the max is
+  bcrypt's hard limit, found during `T-AUTH-1`; the min is a deliberate
+  length-only policy (`AUTH-3`), not a placeholder — no composition rule
+  (no required uppercase/digit/symbol). Composition rules are weaker than
+  they look (they push toward predictable substitutions attackers already
+  model for) and length is the dominant factor in actual strength, per
+  current NIST guidance — so length is the one lever this policy pulls.
+  The max is enforced against the exported `MAX_PASSWORD_BYTES` constant
+  from `app/core/security.py`, never a second hardcoded `72` in the schema
+  — one number, one source. Bytes, not characters: a password well under
+  72 characters can still exceed 72 bytes with multi-byte characters.
+  **Not** echoed or returned in any response, ever.
 - No `role` field accepted — every new user is created with the DB default
   (`'user'`). Promotion to admin is an out-of-band operation (direct DB
   action or a future admin-only endpoint), never self-service.

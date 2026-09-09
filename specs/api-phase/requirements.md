@@ -81,7 +81,7 @@ SHALL clamp it to `100` rather than reject the request.
 
 **AUTH-1** (Event-driven) WHEN a register request has valid `first_name`
 (1–100 chars), `last_name` (1–100 chars), `email` (valid format), and
-`password` (min 8 chars), and `email` is not already registered, THE
+`password` (min 12 chars), and `email` is not already registered, THE
 SYSTEM SHALL create a `users` row with `role = 'user'`, respond `201` with
 the created user's `id`, `first_name`, `last_name`, `email`, `role`,
 `created_at`, and SHALL NOT create a session (no cookies set).
@@ -91,8 +91,24 @@ SYSTEM SHALL respond `409` with `error.code = "CONFLICT"` and SHALL NOT
 reveal which specific field caused the conflict beyond the field name
 `email` in the error (no user data leaked beyond "this email is taken").
 
-**AUTH-3** (Unwanted behavior) IF `password` is fewer than 8 characters
-THEN THE SYSTEM SHALL respond `422` per XC-4.
+**AUTH-3** (Unwanted behavior) IF `password` is fewer than 12 characters
+THEN THE SYSTEM SHALL respond `422` per XC-4. **Length only — no
+composition rule** (no required uppercase/digit/symbol). Decided
+deliberately, not a placeholder: composition rules push toward predictable
+substitutions (`P@ssw0rd1` satisfies most such rules and is a weak
+password) without reliably improving actual strength; length is the
+dominant factor, per NIST SP 800-63B's current guidance. Raised from an
+earlier 8-char minimum for the same reason — length is where the real
+protection comes from, so it's the lever that moved.
+
+**AUTH-16** (Unwanted behavior) IF `password` exceeds `MAX_PASSWORD_BYTES`
+(72 bytes — bcrypt's hard limit, exported as a named constant from
+`app/core/security.py`, never a re-hardcoded literal in the schema) THEN
+THE SYSTEM SHALL respond `422` per XC-4 with `fields.password` populated —
+never a `500`. Note this is measured in **bytes, not characters**: a
+password well under 72 characters can still exceed 72 bytes if it contains
+multi-byte characters (emoji, non-Latin scripts). Found as a spec gap
+during `T-AUTH-1` — `design.md §2` originally specified only a minimum.
 
 **AUTH-4** (Ubiquitous) THE SYSTEM SHALL NOT accept a `role` field on
 register, per XC-8.
