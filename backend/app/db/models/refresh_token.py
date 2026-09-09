@@ -26,7 +26,11 @@ class RefreshToken(UUIDPkMixin, Base):
         nullable=False,
         index=True,
     )
-    token_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    # Indexed (R7): token validation looks refresh tokens up by token_hash.
+    # design.md's ERD-derived DDL didn't call for this index.
+    token_hash: Mapped[str] = mapped_column(
+        String(255), nullable=False, index=True
+    )
     expires_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )

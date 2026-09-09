@@ -25,6 +25,15 @@ name singular (`user.py` → `User`, `service_request.py` →
 by direct Python import across model files — avoids circular imports
 given how interconnected this schema is.
 
+`app/db/models/__init__.py` re-exports every model
+(`from app.db.models.user import User`, etc., one line per model). Any
+code that needs "every model registered on `Base.metadata`" — most
+notably `alembic/env.py` — imports from this `__init__.py`, not from
+each model module individually. When a new model is added, updating
+`__init__.py` is part of that task, not a separate follow-up — a model
+missing from `__init__.py` won't register on `Base.metadata` and won't
+show up in autogenerate diffs, silently.
+
 ## Constraints
 
 Enum-like columns (`role`, `priority`, `request_type` if it ever gets

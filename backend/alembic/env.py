@@ -8,6 +8,13 @@ from alembic import context
 from app.config import settings
 from app.db.base import Base
 
+# Importing the models package runs app/db/models/__init__.py, which
+# re-exports every model and thereby registers each one on Base.metadata
+# before autogenerate diffs the metadata against the database. Per
+# backend/CLAUDE.md this package is the single place that model list lives —
+# env.py imports it, not each model module individually.
+from app.db import models  # noqa: F401
+
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
 config = context.config
@@ -25,9 +32,8 @@ config.set_main_option(
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Metadata used for 'autogenerate' support. Model classes are added under
-# app/db/models/ in later tasks; each must be imported before autogenerate
-# runs so it registers itself on Base.metadata.
+# Metadata used for 'autogenerate' support. Every model module is imported
+# above so its class is registered on Base.metadata before this point.
 target_metadata = Base.metadata
 
 # other values from the config, defined by the needs of env.py,

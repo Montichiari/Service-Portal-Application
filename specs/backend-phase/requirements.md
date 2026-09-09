@@ -106,6 +106,10 @@ ZONE`, not the `TIMESTAMPTZ` every timestamp column in `design.md`'s DDL
   `refresh_tokens`, with a plain `created_at` column only (no
   `updated_at` — see R1) and nullable `revoked_at`, both declared with
   `DateTime(timezone=True)` explicit per R1's requirement.
+- THE SYSTEM SHALL index `token_hash` (`mapped_column(..., index=True)`)
+  — token validation looks tokens up by `token_hash`, and this access
+  pattern needs an index even though `design.md`'s original ERD-derived
+  DDL didn't call for one.
 
 ## R8 — Cascade / delete behavior
 
@@ -115,9 +119,17 @@ ZONE`, not the `TIMESTAMPTZ` every timestamp column in `design.md`'s DDL
   `CASCADE` for `service_request_id` on `status_history`/`comments`,
   `RESTRICT` for `current_status_id`/`status_id`, `CASCADE` for
   `refresh_tokens.user_id`.
-- THE SYSTEM SHALL pass matching `passive_deletes=True` on any
-  `relationship()` whose FK uses `CASCADE`, so SQLAlchemy defers to the
-  database's cascade rather than issuing its own DELETE statements first.
+- THE SYSTEM SHALL pass `passive_deletes=True` specifically on the
+  **parent-side collection relationship** for every FK that uses
+  `CASCADE` — `ServiceRequest.status_history`, `ServiceRequest.comments`,
+  `User.refresh_tokens` — not on the child's many-to-one relationship
+  back to its parent (`StatusHistory.service_request`,
+  `Comment.service_request`, `RefreshToken.user`). `passive_deletes=True`
+  only changes behavior on the side representing the collection that
+  would otherwise be eagerly loaded when the parent is deleted; setting
+  it on the child's back-reference has no meaningful effect. It is
+  harmless to also set it on the child side, but doing so there ALONE
+  does not satisfy this requirement.
 
 ## R9 — Migration
 

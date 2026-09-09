@@ -43,6 +43,7 @@ CREATE TABLE refresh_tokens (
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX ON refresh_tokens (user_id);
+CREATE INDEX ON refresh_tokens (token_hash);
 
 CREATE TABLE statuses (
     id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
