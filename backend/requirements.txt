@@ -6,4 +6,10 @@ psycopg2-binary
 pydantic
 pydantic-settings
 python-dotenv
+# Password hashing. Used directly rather than via passlib[bcrypt]: passlib
+# 1.7.4 (2020, unmaintained) fails on every hash against bcrypt >= 4.1 — see
+# the module docstring in app/core/security.py.
+bcrypt
+# Access-token encode/decode.
+pyjwt
 pytest
