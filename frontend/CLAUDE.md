@@ -209,9 +209,29 @@ _only_ gate on anything.
 
 **The session has three states, not two.** `AuthContext` bootstraps via
 `GET /auth/me`, so on first mount it is _pending_ — not yet known either
-way. A guard that treats pending as signed-out bounces a signed-in user
-to `/login` on every reload before correcting itself. Render nothing or a
-minimal loading state while pending; only act once the answer is known.
+way. A guard that treats pending as signed-out doesn't merely flash the
+login page: it bounces the signed-in user to `/login` and leaves them
+there, since the bootstrap result arrives after the redirect has already
+happened. Verified in `T-DEBT-2` by removing the guard clause and watching
+it fail exactly that way. Render `null` while pending; only act once the
+answer is known.
+
+**Routes are guarded as a group, not with per-route wrappers**
+(`routes.tsx`). A route added inside the guarded block is protected by
+construction. Per-route wrappers invert that — protection becomes
+something you must remember, and a future route ships unguarded by
+omission. Don't refactor toward per-route wrappers for flexibility;
+if one route genuinely needs different treatment, pull it out explicitly.
+
+Redirects use `replace`, not `push` — a pushed redirect traps the user in
+a Back-button loop.
+
+**Not implemented, if it ever comes up**: there's no
+return-to-intended-destination after login. A signed-out user deep-linking
+to `/requests/abc` is bounced to `/login` and lands on `/` after signing
+in, not back at `/requests/abc`. Deliberate omission, not an oversight —
+add it as its own task if it's wanted, don't bolt it onto an unrelated
+one.
 
 ## Error surfacing
 
@@ -249,6 +269,16 @@ checklist, stop — do not start the next task in the same session. `/clear`
 before starting the next task.
 
 ## Testing
+
+**Run it with `npm run test:e2e`** (from `frontend/`). That starts Vite if
+it isn't already up (`reuseExistingServer`, so it's safe alongside a dev
+server you already have open) and checks the backend is reachable first,
+failing with a plain message rather than a timeout if it isn't. The backend
+and its Postgres are **not** started for you — bring those up yourself. Set
+`E2E_BASE_URL` / `E2E_API_URL` to point elsewhere.
+
+Specs live in `src/e2e/`, typechecked by `tsconfig.e2e.json` (Node types)
+and excluded from `tsconfig.app.json` so the app build never sees them.
 
 Playwright (`e2e/`, set up in `T-DEBT-3`), run against the real running
 stack — not mocks. This is deliberate, not a stopgap: `httpOnly` cookies

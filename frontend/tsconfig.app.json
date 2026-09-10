@@ -25,5 +25,9 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src"]
+  /* The e2e specs live under src/ (frontend/CLAUDE.md's folder map) but are
+     Node code, not app code — they are typechecked by tsconfig.e2e.json
+     instead, which has the node types and none of the DOM-only assumptions. */
+  "include": ["src"],
+  "exclude": ["src/e2e"]
 }
