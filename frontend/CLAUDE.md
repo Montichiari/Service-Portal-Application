@@ -80,11 +80,12 @@ frontend/src/
     api.ts           # the one sanctioned fetch client (built T-AUTH-4).
                     # Exports thin per-endpoint functions; the fetch
                     # wrapper itself is module-private by design.
-  routes.tsx         # CONFIRMED NOT PRESENT. Documented in the prototype
-                    # spec below (Auth guard pattern) as if it existed,
-                    # but Task 3 was never landed — routing is inline in
-                    # App.tsx instead, unguarded. Don't treat this entry
-                    # as current; kept here as a record of the gap.
+  routes.tsx         # route table + cosmetic auth guard + catch-all.
+                    # Built in T-DEBT-2 (it did NOT exist through the
+                    # whole prototype phase and Group 1 — Task 3 was
+                    # never landed; App.tsx held routing inline).
+  e2e/               # Playwright specs (T-DEBT-3), run against the real
+                    # stack — see Testing below.
   styles/
     tokens.css        # CSS variables from design-tokens.md
 ```
@@ -194,18 +195,23 @@ removed in `T-AUTH-5`, not carried forward in a new form.)
 
 ## Auth guard pattern
 
-Prototype spec (above, retained for history): route guard in `routes.tsx`
-redirects to `/login` if `role` is null, commented as cosmetic-only since
-real enforcement is server-side.
+`routes.tsx` holds the route table plus a guard redirecting to `/login`
+when there's no session, built in `T-DEBT-2`. `/login` and `/register` are
+public; everything else requires a session.
 
-**Confirmed: `routes.tsx` does not exist.** Routing is inline in `App.tsx`
-and unguarded — the prototype spec above described intent, not what got
-built (Task 3 debt). `specs/api-phase/tasks.md` deliberately does not build
-or fix this in the current phase: every real authorization check happens
-server-side (`XC-6`, `SC-4`, `CM-7` in `specs/api-phase/requirements.md`),
-so the missing client-side guard is a UX gap, not a security one. `T-AUTH-0`
-no longer needs to re-verify this specific fact — it's settled — but should
-still check the rest of its scope (the five auth-related files) fresh.
+**This guard is cosmetic only** — comment it as such at its definition.
+Every real authorization check is server-side (`XC-6`, `XC-13`, `SR-1`,
+`SC-4`, `CM-7` in `specs/api-phase/requirements.md`). The guard exists to
+give signed-out users a login redirect instead of a screenful of `401`
+errors, and for nothing else. Never let its presence become a reason to
+weaken a server-side check, and never add a client-side check as the
+_only_ gate on anything.
+
+**The session has three states, not two.** `AuthContext` bootstraps via
+`GET /auth/me`, so on first mount it is _pending_ — not yet known either
+way. A guard that treats pending as signed-out bounces a signed-in user
+to `/login` on every reload before correcting itself. Render nothing or a
+minimal loading state while pending; only act once the answer is known.
 
 ## Error surfacing
 
@@ -242,12 +248,33 @@ is current). Implement, verify against that task's acceptance criteria
 checklist, stop — do not start the next task in the same session. `/clear`
 before starting the next task.
 
+## Testing
+
+Playwright (`e2e/`, set up in `T-DEBT-3`), run against the real running
+stack — not mocks. This is deliberate, not a stopgap: `httpOnly` cookies
+are invisible to JavaScript by design, so a mocked client cannot
+meaningfully exercise the auth behavior that matters. MSW stays ruled out
+(see Non-goals).
+
+Test behavior, not implementation — what a user experiences, not which
+functions got called. The exception is network-level assertions where the
+behavior _is_ the network pattern: the refresh-concurrency rule is
+verified by asserting one `/auth/refresh` for concurrent `401`s, because
+that's the actual guarantee.
+
+Apply `backend/CLAUDE.md`'s rule here too: **a test never observed to fail
+is not verified, only written.** Remove the thing under test, confirm the
+test goes red, restore it. This caught real holes twice on the backend
+(`T-AUTH-1`'s tamper test, `T-AUTH-3`'s self-referential expiry
+assertion); the frontend gets no exemption.
+
+Tests seed their own data — register a fresh user per run rather than
+depending on a hand-maintained account, which rots silently.
+
 ## Non-goals for this phase
 
 - No fetch calls outside `src/lib/api.ts`; still no MSW, no mock server,
   no TanStack Query
-- No `routes.tsx` route guard work — it doesn't exist (confirmed), and
-  this phase doesn't build it (see Auth guard pattern)
 - No client-side caching or optimistic updates
 - No Landing/Home page, no dedicated Admin page — out of scope, per
   `specs/api-phase/tasks.md`
@@ -256,3 +283,5 @@ before starting the next task.
 see Auth state.
 ~~No persistence of any kind across page reloads~~ — **retired this
 phase**, session now persists via `GET /auth/me`.
+~~No `routes.tsx` route guard work~~ — **retired at the Group 1
+checkpoint**, built in `T-DEBT-2`.

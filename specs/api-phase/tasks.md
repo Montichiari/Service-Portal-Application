@@ -456,29 +456,178 @@ concern from wiring auth itself. Flag it, don't fix it here.
 
 **Acceptance criteria**:
 
-- [ ] Registering through the UI creates a real user (verify via a
+- [x] Registering through the UI creates a real user (verify via a
       backend query or the login flow immediately after)
-- [ ] Logging in with wrong credentials shows one error message (matching
+- [x] Logging in with wrong credentials shows one error message (matching
       `AUTH-7`'s non-distinguishing behavior), rendered from
       `error.message` in the response — UI-level confirmation of a
       backend guarantee, not a hardcoded local string
-- [ ] Reloading the page after login preserves the session (via
+- [x] Reloading the page after login preserves the session (via
       `GET /auth/me`, not in-memory state)
-- [ ] No reference to `DEMO_USERNAME`, `DEMO_PASSWORD`, the demo role
+- [x] No reference to `DEMO_USERNAME`, `DEMO_PASSWORD`, the demo role
       buttons, or the now-unused `Role` type import remains anywhere in
       the diff
-- [ ] Both submit buttons are disabled for the duration of their request,
+- [x] Both submit buttons are disabled for the duration of their request,
       not only after success
-- [ ] `Field` exists as one shared component imported by both pages, not
+- [x] `Field` exists as one shared component imported by both pages, not
       duplicated
-- [ ] `confirmPassword` never appears in the network request body sent to
+- [x] `confirmPassword` never appears in the network request body sent to
       `POST /auth/register`
+
+**Complete.** Verified live in Chromium against the running backend.
+`AUTH-7`'s non-enumeration guarantee now holds end-to-end: identical
+banner text for a wrong password on a real account and for an
+unregistered address — a backend guarantee that a careless UI could
+easily have undone by distinguishing them at the presentation layer.
+
+Error routing by status is working as designed: a `422` lands inline on
+the offending field via `fields`, a `409` surfaces as a page-level banner
+because `ConflictError` deliberately carries no `fields` map. That split
+is the `error.code`-not-`error.message` branching rule paying off.
+
+**Carried debt out of this task** (both tracked below, neither blocking):
+`SubmitRequestPage` still holds its own local `Field` copy, and routes
+remain unguarded.
 
 ---
 
-**Group 1 checkpoint**: Auth end-to-end — backend and frontend both —
-reviewed and working before Group 2 starts, per the agreed vertical-slice
-process.
+### T-DEBT-1 — Retire the third `Field` copy
+
+**Do this as part of `T-SR-1`**, which opens `SubmitRequestPage` anyway —
+not as a standalone task. One-line import swap plus deleting the local
+copy.
+
+Why it's tracked rather than left as a report note: `frontend/CLAUDE.md`'s
+extract-when-you-touch-two-pages rule was satisfied literally by
+`T-AUTH-5`, but its _purpose_ — one `Field`, not three — isn't met while a
+third copy survives. A later edit to `Field.tsx` would silently not apply
+to `SubmitRequestPage`, which is exactly the failure mode the rule exists
+to prevent.
+
+---
+
+### T-DEBT-2 — Route guard
+
+**Decided at the Group 1 checkpoint: build it now**, before `T-SR-0`.
+Rationale: `T-SR-1` makes the dashboard fetch real data, at which point a
+signed-out user gets a page of `401` errors instead of a login redirect.
+Building the guard first means Group 2's frontend task lands on a correct
+signed-out experience rather than creating a broken one and fixing it
+after.
+
+**Scope**:
+
+- Create `src/routes.tsx` — the file `frontend/CLAUDE.md` has documented
+  since the prototype phase but which was never built (Task 3 debt). Move
+  the inline route table out of `App.tsx` into it.
+- A guard component that redirects to `/login` when there is no session.
+  `/login` and `/register` are public; every other route requires a
+  session.
+- **Handle the three-state session correctly.** `AuthContext` bootstraps
+  via `GET /auth/me`, so on first mount the session is _pending_ — neither
+  known-present nor known-absent. If the guard treats pending as
+  signed-out, a signed-in user reloading any page gets bounced to `/login`
+  before the bootstrap resolves, then bounced back. Render nothing (or a
+  minimal loading state) while pending; only redirect once the answer is
+  actually known. This is the single most likely way to get this task
+  wrong.
+- Add the `path="*"` catch-all route that
+  `frontend-contract.md §8.5` flags as missing — an unmatched URL
+  currently renders nothing at all.
+- Fix `AppShell`'s nav to use router `<Link>` rather than plain
+  `<a href>` (`frontend-contract.md §8.6`/§9-#17). With cookie-based auth
+  a full reload no longer wipes the session, so this is no longer a
+  correctness bug — but it still costs a full page reload plus a
+  redundant `/auth/me` round-trip on every nav click.
+
+**This guard is cosmetic, and must be commented as such** where it's
+implemented. Every real authorization check is server-side (`XC-6`,
+`XC-13`, `SR-1`, `SC-4`, `CM-7`) — the guard improves the signed-out
+experience and nothing more. Do not let its existence become a reason
+anyone later trusts it as an access control.
+
+**Acceptance criteria**:
+
+- [ ] Signed out, visiting `/` redirects to `/login` rather than
+      rendering the shell
+- [ ] Signed in, a hard reload of `/` stays on `/` — no flash of
+      `/login` while `GET /auth/me` is in flight
+- [ ] `/login` and `/register` remain reachable while signed out
+- [ ] An unmatched URL renders a not-found page, not a blank screen
+- [ ] `AppShell` nav uses `<Link>`; clicking it does not trigger a full
+      page reload (verify in the network tab — no document request)
+- [ ] The guard's cosmetic-only nature is commented at its definition
+
+---
+
+### T-DEBT-3 — Playwright harness
+
+**Decided at the Group 1 checkpoint: stand it up now**, after `T-DEBT-2`
+so the guard is included, and before `T-SR-0` so Group 2's frontend work
+lands on an existing harness rather than adding to an untested pile.
+
+Rationale: the backend has 147 tests and the frontend has none. Both
+`T-AUTH-4` and `T-AUTH-5` were verified live in a browser — good evidence,
+but one-time, with nothing guarding regressions. The riskiest logic in the
+slice (`api.ts`'s refresh-concurrency rule) has no automated coverage at
+all, and it's the kind of thing a well-meaning future refactor would
+simplify straight back into a bug.
+
+**Why Playwright and not a mocked unit test**: the behavior that matters
+here is inseparable from real cookies, real CORS, and a real backend —
+`httpOnly` cookies are invisible to JavaScript by design, so a mocked
+client can't meaningfully exercise them. `frontend/CLAUDE.md` also rules
+out MSW. Playwright against the running stack tests the thing itself.
+
+**Scope**:
+
+- Playwright installed and configured; a script that runs the suite
+  against the dev servers.
+- A seeding approach for test users — either a fixture that registers a
+  fresh user per run (self-contained, slower) or a documented seeded
+  account. Prefer per-run registration: tests that depend on a manually
+  maintained account rot silently.
+- Cover the Auth slice's behavior, not its implementation:
+  - register → login → reload → session persists
+  - wrong password and unknown email produce identical error text
+    (`AUTH-7` — the guarantee most easily undone by a future UI edit)
+  - logout ends the session server-side (a reload does not restore it)
+  - **concurrent `401`s produce exactly one `/auth/refresh`** — the
+    `T-AUTH-4` finding; assert on the network requests, not on internal
+    state
+  - signed-out access to a protected route redirects to `/login`
+    (`T-DEBT-2`)
+
+**Acceptance criteria**:
+
+- [ ] The suite runs green against the running stack from a single
+      documented command
+- [ ] The refresh-concurrency test fails if the `sessionGeneration` guard
+      in `api.ts` is removed — verify by actually removing it, confirming
+      red, and restoring. Per `backend/CLAUDE.md`'s rule, a test never
+      observed to fail is not verified, only written; that applies here
+      too
+- [ ] The `AUTH-7` test fails if the login page is changed to
+      distinguish wrong-password from unknown-email
+- [ ] No test depends on a hand-maintained database row
+
+---
+
+**Group 1 complete — Auth end-to-end.** Backend (`T-AUTH-1` through
+`T-AUTH-3`) and frontend (`T-AUTH-4`, `T-AUTH-5`) both built, reviewed,
+and integrated.
+
+**Checkpoint decisions, both resolved**: build the route guard
+(`T-DEBT-2`) and stand up Playwright (`T-DEBT-3`) before `T-SR-0` opens
+Group 2. Run them in that order — the guard first, so Playwright's first
+tests cover the finished auth surface rather than one that's about to
+change underneath them.
+
+What the slice validated, worth noting before repeating the pattern three
+more times: building vertically surfaced problems a backend-then-frontend
+split would have hidden until much later — `XC-12`'s error-path CORS gap,
+the refresh-concurrency bug, the `422`-vs-`409` error routing split. None
+of those are visible until both halves exist and talk to each other.
 
 ---
 
@@ -518,6 +667,9 @@ async and can genuinely be empty for a new user.
 
 - [ ] Dashboard renders real requests for the logged-in user, empty state
       when there are none
+- [ ] `T-DEBT-1`: `SubmitRequestPage` imports the shared `Field.tsx` and
+      its local copy is deleted — no `Field` definition survives outside
+      `components/ui/Field.tsx`
 - [ ] Submitting the form creates a real request and it appears in the
       dashboard afterward (closes the prototype's gap at
       `frontend-contract.md §8.7` where submission never touched the list)
