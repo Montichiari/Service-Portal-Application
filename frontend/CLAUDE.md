@@ -77,9 +77,9 @@ frontend/src/
                     # still importing from here after its Group in
                     # tasks.md is done is a bug, not a leftover
   lib/
-    api.ts           # CONFIRMED NOT YET CREATED (only utils.ts exists in
-                    # lib/ today). Built from zero in T-AUTH-4 — the one
-                    # sanctioned fetch client once it exists.
+    api.ts           # the one sanctioned fetch client (built T-AUTH-4).
+                    # Exports thin per-endpoint functions; the fetch
+                    # wrapper itself is module-private by design.
   routes.tsx         # CONFIRMED NOT PRESENT. Documented in the prototype
                     # spec below (Auth guard pattern) as if it existed,
                     # but Task 3 was never landed — routing is inline in
@@ -159,6 +159,28 @@ Every function returns the parsed success body or throws a typed error
 carrying `error.code` / `error.message` / `error.fields`. Callers branch on
 `code`, never on `message` string content — messages can reword without
 that being a breaking change; codes are the contract.
+
+Exports are thin per-endpoint functions (`register`, `login`, `getMe`,
+`logout`, and so on as later slices add them). The underlying fetch
+wrapper stays module-private — that's what prevents a second client
+growing alongside this one.
+
+**Refresh-on-401 has a concurrency rule that must not be simplified away**
+(learned in `T-AUTH-4`): concurrent `401`s must produce exactly one
+refresh. A shared in-flight promise is _not_ enough — a `401` arriving
+just after a refresh settles was generated against the already-replaced
+token, and retrying it kicks off a second refresh. The client tracks a
+session generation counter: a call captures it before sending, and a
+`401` carrying a superseded generation retries directly rather than
+refreshing again. This isn't premature optimization — the backend's
+single-use token rotation (`AUTH-9`) plus family revocation on replay
+(`AUTH-11`) means a redundant refresh can sign the user out of every
+session for doing nothing wrong.
+
+`/auth/login` and `/auth/refresh` are both excluded from refresh-retry.
+`login` reads no cookie, so a refresh can't change whether a password is
+correct, and firing one would rotate a signed-in user's tokens on someone
+else's failed sign-in attempt.
 
 ## Auth state
 

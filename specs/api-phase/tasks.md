@@ -323,22 +323,61 @@ conventions section — no page changes yet.
 
 - `credentials: 'include'` on every call
 - `X-Requested-With` header on every non-`GET` call
-- On a `401` from any call other than `/auth/refresh` itself, attempt one
-  silent `POST /auth/refresh`, then retry the original call once; if the
-  refresh also fails, surface the original `401` to the caller
+- On a `401` from any call **except** `/auth/refresh` and `/auth/login`,
+  attempt one silent `POST /auth/refresh`, then retry the original call
+  once; if the refresh also fails, surface the original `401` to the
+  caller. `/auth/login` is excluded because it reads no cookie at all — a
+  refresh can never change whether a password is correct, and firing one
+  there would needlessly rotate an already-signed-in user's tokens on
+  someone else's failed sign-in attempt. (`T-AUTH-4` deviated from this
+  file's original wording here and was right to; corrected in place.)
+- **Concurrent `401`s must produce exactly one refresh**, not one per
+  call. A shared in-flight promise alone is _not_ sufficient: a `401`
+  that arrives just after a refresh settles was generated against the
+  already-replaced token, and retrying it starts a second refresh. Track
+  a session generation counter instead — a call captures it before
+  sending, and a `401` carrying a superseded generation retries directly
+  without refreshing again. This matters because `AUTH-9`'s single-use
+  rotation plus `AUTH-11`'s family revocation means a redundant refresh
+  presenting a rotated token gets the user signed out of everything, for
+  doing nothing wrong.
 - A typed error shape matching the `error.code` / `error.message` /
   `error.fields` envelope, so calling code can branch on `code` without
   string-matching `message`
 
 **Acceptance criteria**:
 
-- [ ] A call against a real running backend with no session returns the
+- [x] A call against a real running backend with no session returns the
       structured error shape, not a thrown parse error
-- [ ] A call that gets a `401`, refreshes successfully, and retries,
+- [x] A call that gets a `401`, refreshes successfully, and retries,
       returns the retried call's result to the original caller
       transparently
-- [ ] No page or component imports this yet — verified by grepping for
+- [x] No page or component imports this yet — verified by grepping for
       the import outside `src/lib/`
+
+**Complete.** Verified in a real Chromium page against the running
+backend, so `credentials: 'include'`, CORS, and the `httpOnly`/`Secure`
+cookies were genuinely exercised rather than mocked — including the
+`XC-12` error-path CORS behavior specced during `T-AUTH-3`, which is
+exactly the thing a mocked test would have missed.
+
+The concurrency finding is worth remembering past this task: deduping
+concurrent refreshes with a shared in-flight promise **looks** correct
+and isn't. A `401` landing just after a refresh settles was generated
+against the already-replaced token; retrying it starts a second,
+redundant refresh — which, given `AUTH-11`'s family revocation, is one
+arrival-order shift away from signing the user out of everything. The fix
+reframes the question from "is a refresh running?" to "was this `401`
+produced by a token that's already been replaced?" — a stale-response
+problem in concurrency clothing.
+
+Exports are thin per-endpoint functions (`register`/`login`/`getMe`/
+`logout`); the underlying wrapper stays module-private so `T-AUTH-5`
+can't accidentally grow a second client alongside it.
+
+Two dev-database users exist from this task's live testing
+(`t-auth-4.<timestamp>@example.com`) — usable as seeded logins for
+`T-AUTH-5`, or delete them.
 
 ---
 
