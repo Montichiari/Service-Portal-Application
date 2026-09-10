@@ -104,6 +104,18 @@ status and envelope body. If `T-AUTH-4`'s client can't read a `401`'s
 `error.code` from a cross-origin call, this is almost certainly why —
 verify it explicitly rather than assuming success-path testing covers it.
 
+**Known structural exception, resolved in `T-AUTH-3`**: the `500` response
+cannot get its CORS headers from `CORSMiddleware`. Starlette hangs the
+`Exception` catch-all off `ServerErrorMiddleware`, the _outermost_ layer,
+so that one response never passes back down through the middleware stack
+on its way out. `XC-12` and `XC-14` are in genuine tension here — moving
+the handler inward would give it CORS for free but would break `XC-14`'s
+tested guarantee that exceptions raised _inside_ the middleware stack are
+still caught. Resolution: the `500` handler attaches CORS headers itself,
+applying the same origin allow-list, in `app/api/cors.py`. **Do not
+"simplify" this by moving the exception handler inward** — that trade
+silently loses `XC-14` coverage to gain something already solved.
+
 **XC-13** (State-driven) WHILE processing any protected request, THE
 SYSTEM SHALL load the authenticated user's current row from the database
 rather than trusting the JWT's `role` claim alone — IF that row no longer
@@ -179,6 +191,25 @@ never a `500`. Note this is measured in **bytes, not characters**: a
 password well under 72 characters can still exceed 72 bytes if it contains
 multi-byte characters (emoji, non-Latin scripts). Found as a spec gap
 during `T-AUTH-1` — `design.md §2` originally specified only a minimum.
+
+**AUTH-17** (Ubiquitous) THE SYSTEM SHALL case-fold `email` to lowercase
+before storing it and before every lookup, via a single shared
+normalization function used by both paths. Postgres' unique index compares
+exactly, so without this, addresses differing only in case become separate
+accounts and a user who capitalizes their address at login is told their
+password is incorrect. **Decided during `T-AUTH-3`** — the spec previously
+said "unique" without specifying case handling.
+
+**AUTH-18** (Ubiquitous) THE SYSTEM SHALL perform a password-hash
+comparison on the login path even when no user matches the supplied email
+(against a decoy hash), so that a failed login takes comparable time
+whether the email exists or not. This is the timing half of `AUTH-7`'s
+non-enumeration guarantee — identical response bodies don't help if the
+no-such-user path returns measurably faster. **Not enforced by an
+automated test**: a wall-clock timing assertion is inherently flaky, and
+the mutation pass can't detect the decoy's removal. Verify by reading the
+code, not by trusting a green suite — flagged explicitly during
+`T-AUTH-3` so this known blind spot isn't mistaken for coverage.
 
 **AUTH-4** (Ubiquitous) THE SYSTEM SHALL NOT accept a `role` field on
 register, per XC-8.

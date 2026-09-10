@@ -242,12 +242,12 @@ mystery later.
 **Acceptance criteria** (contract tests, real Postgres, per
 `backend/CLAUDE.md`'s testing convention):
 
-- [ ] `AUTH-1`: valid register creates a `user`-role row, returns `201`,
+- [x] `AUTH-1`: valid register creates a `user`-role row, returns `201`,
       no cookies set
-- [ ] `AUTH-2`: duplicate email returns `409`
-- [ ] `AUTH-4`: a `role` field in the register body is ignored, not
+- [x] `AUTH-2`: duplicate email returns `409`
+- [x] `AUTH-4`: a `role` field in the register body is ignored, not
       applied
-- [ ] `AUTH-5`/`XC-15`: no response body anywhere contains `password` or
+- [x] `AUTH-5`/`XC-15`: no response body anywhere contains `password` or
       `password_hash` — **including error responses**, not just `2xx`.
       `T-AUTH-2`'s review surfaced that a `response_model` serialization
       failure carries the offending value inside
@@ -257,22 +257,22 @@ mystery later.
       regression on `/auth/register` or `/auth/me` specifically, since
       those are the endpoints where a `User` row is the serialization
       source
-- [ ] `AUTH-3`: an 11-character password returns `422`; a 12-character
+- [x] `AUTH-3`: an 11-character password returns `422`; a 12-character
       all-lowercase password with no digit or symbol succeeds — confirms
       the rule is length-only, not silently composition-gated
-- [ ] `AUTH-16`: a password over 72 bytes returns `422` with
+- [x] `AUTH-16`: a password over 72 bytes returns `422` with
       `fields.password` populated — not a `500`; include a case with a
       multi-byte-character password under 72 characters but over 72 bytes
-- [ ] `AUTH-6`: valid login sets both cookies with correct attributes and
+- [x] `AUTH-6`: valid login sets both cookies with correct attributes and
       expiries
-- [ ] `AUTH-7`: wrong email and wrong password produce byte-identical
+- [x] `AUTH-7`: wrong email and wrong password produce byte-identical
       error bodies
-- [ ] `AUTH-9`: refresh rotates the token (old row `revoked_at` set, new
+- [x] `AUTH-9`: refresh rotates the token (old row `revoked_at` set, new
       row inserted) and issues new cookies
-- [ ] `AUTH-11`: replaying an already-rotated refresh token revokes the
+- [x] `AUTH-11`: replaying an already-rotated refresh token revokes the
       rest of that user's active refresh tokens
-- [ ] `AUTH-12`/`AUTH-13`: logout is idempotent, always `204`
-- [ ] `XC-12`: a preflight `OPTIONS` and a real request from
+- [x] `AUTH-12`/`AUTH-13`: logout is idempotent, always `204`
+- [x] `XC-12`: a preflight `OPTIONS` and a real request from
       `FRONTEND_ORIGIN` both succeed with credentials; a request from an
       arbitrary other origin is rejected by CORS. **Also test a failing
       request** (e.g. bad credentials against `/auth/login`) from
@@ -280,10 +280,37 @@ mystery later.
       CORS headers, not just `2xx` responses. This is the specific gotcha
       that silently breaks a frontend's ability to read error bodies from
       cross-origin calls if missed.
-- [ ] `XC-13`: a user deactivated (`is_active = false`) after their token
+- [x] `XC-13`: a user deactivated (`is_active = false`) after their token
       was issued is rejected `401` on their very next request, not only
       after the token's natural expiry — confirms the DB lookup is
       actually happening, not just present in the code path
+
+**Complete.** 147 tests total (52 new), mutation-tested — 31 deliberate
+defects, all caught. That pass found a real hole in the tests themselves:
+the cookie-expiry assertion derived its expected value from the same TTL
+constant it was testing, so changing the access token to 30 days kept it
+green. Now pinned to literal `3600`/`2592000` from `AUTH-6`. Worth
+generalizing: **a test that computes its expectation from the code under
+test asserts only self-consistency, not correctness** — the same class of
+error as `T-AUTH-1`'s tamper test passing for the wrong reason.
+
+Three decisions folded back into the specs rather than left as
+implementation notes: `AUTH-17` (email case-folding, previously
+unspecified), the `design.md` logout contradiction fixed in favor of
+`AUTH-13`'s idempotency, and `XC-12`'s documented `ServerErrorMiddleware`
+exception for the `500` path. `AUTH-18` records the login-timing decoy
+as a deliberate blind spot — implemented but not test-enforced, since a
+wall-clock assertion would be flaky.
+
+Also added `email-validator` to `requirements.txt` (Pydantic's `EmailStr`
+needs it), and auth tests use `@example.com` rather than the DB fixtures'
+`@example.test`, which `email-validator` rejects as a reserved TLD.
+
+---
+
+**Group 1 backend half complete.** `T-AUTH-4` and `T-AUTH-5` are the
+frontend half of this same vertical slice; the group checkpoint comes
+after `T-AUTH-5`, not here.
 
 ---
 

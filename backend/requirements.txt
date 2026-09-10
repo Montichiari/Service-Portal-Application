@@ -4,6 +4,10 @@ sqlalchemy
 alembic
 psycopg2-binary
 pydantic
+# Backs pydantic's EmailStr, which is an optional extra rather than part of
+# pydantic itself. Used by the register/login schemas (T-AUTH-3) so "valid
+# email" is one maintained implementation instead of a hand-rolled regex.
+email-validator
 pydantic-settings
 python-dotenv
 # Password hashing. Used directly rather than via passlib[bcrypt]: passlib

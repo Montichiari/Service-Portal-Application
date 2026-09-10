@@ -32,6 +32,8 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from app.api.cors import cors_headers_for
+
 logger = logging.getLogger(__name__)
 
 
@@ -115,6 +117,19 @@ class ForbiddenError(APIError):
     status_code = 403
     code = ErrorCode.FORBIDDEN
     default_message = "You do not have permission to perform this action."
+
+
+class ConflictError(APIError):
+    """409 — the request collides with existing state (AUTH-2).
+
+    The message names the colliding field and stops there. AUTH-2 allows the
+    caller to learn "this email is taken" and nothing further, and design.md
+    §1 reserves ``fields`` for ``VALIDATION_ERROR``, so this carries none.
+    """
+
+    status_code = 409
+    code = ErrorCode.CONFLICT
+    default_message = "That request conflicts with existing data."
 
 
 # --- RequestValidationError -> `fields` --------------------------------------
@@ -225,7 +240,17 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
     logger.exception(
         "Unhandled exception on %s %s", request.method, request.url.path
     )
-    return error_response(500, ErrorCode.INTERNAL_ERROR, INTERNAL_ERROR_MESSAGE)
+    return error_response(
+        500,
+        ErrorCode.INTERNAL_ERROR,
+        INTERNAL_ERROR_MESSAGE,
+        # Every other handler's response is decorated by `CORSMiddleware` on
+        # the way out; this one is created outside it and would otherwise
+        # reach a browser stripped of CORS headers, i.e. as an unreadable
+        # network error rather than a 500 (XC-12). `cors_headers_for` explains
+        # why the handler sits where it does.
+        headers=cors_headers_for(request),
+    )
 
 
 def register_exception_handlers(app: FastAPI) -> None:

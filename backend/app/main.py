@@ -15,7 +15,12 @@ from sqlalchemy.orm import Session
 
 from app.api.errors import register_exception_handlers
 from app.api.middleware import register_middleware
+from app.api.routes.auth import router as auth_router
 from app.database import get_db
+
+# XC-1. Applied once, here, so no route path spells it out for itself
+# (backend/CLAUDE.md).
+API_V1_PREFIX = "/api/v1"
 
 health_router = APIRouter(tags=["health"])
 
@@ -44,7 +49,8 @@ def create_app() -> FastAPI:
     # Liveness probes, deliberately outside /api/v1 (XC-1 governs the API
     # surface; these are operational endpoints, not part of the contract).
     app.include_router(health_router)
-    # Resource routers mount here with their /api/v1 prefix from T-AUTH-3 on.
+    # Resource routers, each carrying its own resource prefix.
+    app.include_router(auth_router, prefix=API_V1_PREFIX)
     return app
 
 

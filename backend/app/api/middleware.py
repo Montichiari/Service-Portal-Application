@@ -1,9 +1,10 @@
-"""Cross-cutting request middleware (T-AUTH-2; requirements XC-9).
+"""Cross-cutting request middleware (T-AUTH-2, T-AUTH-3; requirements XC-9,
+XC-12).
 
-Currently one entry: the CSRF header check. Middleware rather than a
-dependency, per backend/CLAUDE.md — a dependency would have to be remembered
-on every future non-``GET`` route, and the one that got forgotten would be the
-one that mattered.
+Two entries: the CSRF header check (XC-9) and CORS (XC-12). Both are
+middleware rather than dependencies, per backend/CLAUDE.md — a dependency
+would have to be remembered on every future non-``GET`` route, and the one
+that got forgotten would be the one that mattered.
 """
 
 from __future__ import annotations
@@ -11,10 +12,12 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
+from app.api.cors import ALLOWED_ORIGINS
 from app.api.errors import ErrorCode, error_response
 
 CSRF_HEADER = "X-Requested-With"
@@ -61,6 +64,36 @@ class RequireCustomHeaderMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
+# Every method the API serves. Listed rather than wildcarded so that adding a
+# verb is a visible decision; unlike the origin, a wildcard here would be
+# valid, just less informative.
+CORS_ALLOWED_METHODS = ["GET", "HEAD", "OPTIONS", "POST", "PUT", "PATCH", "DELETE"]
+
+# The only two headers the frontend client sends: a JSON content type, and
+# XC-9's CSRF header. Naming the latter here rather than re-spelling the
+# string keeps it to one definition — and it has to be allowed explicitly or
+# the preflight would reject the very header that makes a write legal.
+CORS_ALLOWED_HEADERS = ["Content-Type", CSRF_HEADER]
+
+
 def register_middleware(app: FastAPI) -> None:
     """Attach every middleware above. Called once, from ``create_app``."""
     app.add_middleware(RequireCustomHeaderMiddleware)
+    # Added *last* on purpose. Starlette inserts each new middleware at the
+    # front of the stack, so the last one registered is the outermost — which
+    # puts CORS outside the CSRF check and outside `ExceptionMiddleware`.
+    # Both placements matter for XC-12's "error responses too": a 403 from the
+    # check above, and a 401/422 from an exception handler, are only readable
+    # cross-origin because their responses pass back out through here.
+    # Reversing these two lines would leave those responses bare, and no
+    # success-path test would notice (see tests/api/test_cors.py).
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=list(ALLOWED_ORIGINS),
+        # Cookies are the entire auth transport (design.md §1), so a
+        # credential-less CORS policy would allow the request and drop the
+        # session.
+        allow_credentials=True,
+        allow_methods=CORS_ALLOWED_METHODS,
+        allow_headers=CORS_ALLOWED_HEADERS,
+    )

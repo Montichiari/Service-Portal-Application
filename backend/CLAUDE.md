@@ -237,6 +237,30 @@ to `fetch` as an opaque network failure instead of a readable response.
 Test a failing cross-origin request explicitly; don't infer it from a
 passing success-path test.
 
+**The `500` path is a documented exception** (`T-AUTH-3`): Starlette hangs
+the `Exception` catch-all off `ServerErrorMiddleware`, the outermost
+layer, so that response never passes back through `CORSMiddleware`. The
+handler therefore attaches CORS headers itself via `app/api/cors.py`,
+using the same origin allow-list. **Don't "fix" this by moving the
+exception handler inward** — it would gain CORS automatically but lose
+`XC-14`'s tested guarantee that exceptions raised inside the middleware
+stack are still caught. The current arrangement is the resolution of a
+real tension between two requirements, not an oversight.
+
+### Email handling
+
+Email addresses are case-folded to lowercase through a single shared
+`normalize_email` function, applied on both storage and lookup
+(`AUTH-17`). Never fold at one and not the other, and never inline the
+`.lower()` call at a call site — Postgres' unique index compares exactly,
+so a single unfolded path silently creates duplicate accounts that differ
+only in case.
+
+`requirements.txt` includes `email-validator` (Pydantic's `EmailStr`
+requires it as an optional extra). Note that it rejects `.test` as a
+reserved TLD, so API tests use `@example.com` addresses rather than the
+DB fixtures' `@example.test`.
+
 ## Testing
 
 Contract tests (R10, ORM phase) run against a real Postgres test database —
@@ -287,6 +311,14 @@ only written.
 - `requirements.txt` includes `httpx2`, not `httpx` — this Starlette
   version's `TestClient` requires that specific package. Don't "correct"
   it back to `httpx` if you see it and don't recognize the name.
+- **Never derive a test's expected value from the constant under test.**
+  Found in `T-AUTH-3`: the cookie-expiry assertion computed its expectation
+  from `ACCESS_TOKEN_TTL`, so changing that constant to 30 days left the
+  test green — it asserted self-consistency, not correctness. Pin
+  expectations to the literal values the requirement states
+  (`3600`/`2592000` from `AUTH-6`), with a comment explaining why the
+  constant deliberately isn't imported. Same failure family as a tamper
+  test that passes for the wrong reason.
 
 ## Task workflow
 

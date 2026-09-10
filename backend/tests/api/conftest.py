@@ -146,6 +146,28 @@ def client(api_app: FastAPI) -> Iterator[TestClient]:
 
 
 @pytest.fixture
+def auth_client(api_app: FastAPI) -> Iterator[TestClient]:
+    """A cookie-persisting client for whole auth flows (T-AUTH-3).
+
+    ``base_url`` is **https** deliberately. The auth cookies are ``Secure``,
+    and httpx's cookie jar silently declines to store a Secure cookie received
+    over ``http`` — so a login would appear to succeed and the very next call
+    would 401, looking exactly like broken auth rather than a misconfigured
+    test client. tasks.md flags this for this task specifically; it is cheaper
+    to get right than to debug.
+
+    ``X-Requested-With`` is sent by default so flow tests read as flows rather
+    than as a header repeated on every line. That does not weaken XC-9:
+    ``test_csrf.py`` covers the check on its own, through the plain ``client``
+    fixture, including on paths that route nowhere.
+    """
+    with TestClient(
+        api_app, base_url="https://testserver", headers=CSRF_HEADERS
+    ) as test_client:
+        yield test_client
+
+
+@pytest.fixture
 def raw_client(api_app: FastAPI) -> Iterator[TestClient]:
     """A client that returns the 500 response instead of re-raising.
 

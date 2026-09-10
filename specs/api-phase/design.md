@@ -256,7 +256,15 @@ Request:
 ```
 
 - `first_name`, `last_name`: 1–100 chars (matches `users` column limits)
-- `email`: valid email, unique — 409 `CONFLICT` if already registered
+- `email`: valid email, unique — 409 `CONFLICT` if already registered.
+  **Case-folded to lowercase before storage and before every lookup**
+  (`AUTH-17`), through a single shared `normalize_email` function used by
+  both paths — never folded at one and not the other. Decided during
+  `T-AUTH-3`; the original draft of this document said "unique" without
+  saying how case is treated, and Postgres' unique index compares exactly,
+  so without folding, `Ada@example.com` and `ada@example.com` become two
+  separate accounts and a user who capitalizes their address at login gets
+  told their password is wrong with no way to work out why.
 - `password`: min 12 chars, **max 72 bytes** (`AUTH-16`) — the max is
   bcrypt's hard limit, found during `T-AUTH-1`; the min is a deliberate
   length-only policy (`AUTH-3`), not a placeholder — no composition rule
@@ -330,10 +338,16 @@ Response `200`: same body shape as login. Sets new cookies.
 
 ### `POST /auth/logout`
 
-Requires an authenticated session.
-
-Revokes the current refresh token (`revoked_at` set), clears both cookies.
-Response `204`, empty body.
+**No authentication required** — deliberately. Revokes the current refresh
+token (`revoked_at` set) if there is one, clears both cookies, and
+responds `204` with an empty body **in every case**, including when no
+valid session exists (`AUTH-13`). **Corrected during `T-AUTH-3`**: an
+earlier draft of this section said logout "requires an authenticated
+session," which contradicted `AUTH-13` outright. `AUTH-13` is right — a
+`401` on sign-out would fail the user's click at exactly the moment their
+session had already expired, leaving the stale cookies in place and no
+obvious way to clear them. Logout is idempotent; logging out twice, or
+while already logged out, is not an error.
 
 ### `GET /auth/me`
 
