@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import type { ReactNode } from 'react'
-import { MenuIcon, XIcon } from 'lucide-react'
+import { LogOutIcon, MenuIcon, XIcon } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { useAuth } from '@/context/AuthContext'
 import { cn } from '@/lib/utils'
 
 /**
@@ -22,6 +24,13 @@ import { cn } from '@/lib/utils'
  * Nav is exactly the two top-level destinations from design.md's routing
  * table. Links are plain anchors for now — active state and client-side
  * navigation are wired in the routing task.
+ *
+ * The account block below the nav is T-AUTH-5's: the app had no way to sign
+ * out at all before it. It renders only for a session `GET /auth/me` actually
+ * confirmed, so it doubles as the visible proof that a reload kept the
+ * session. Routes themselves stay unguarded — that gap is Task 3's and is
+ * explicitly out of this task's scope (frontend/CLAUDE.md, "Auth guard
+ * pattern").
  */
 const NAV_ITEMS = [
   { label: 'Requests Dashboard', href: '/' },
@@ -34,6 +43,19 @@ export interface AppShellProps {
 
 export function AppShell({ children }: AppShellProps) {
   const [menuOpen, setMenuOpen] = useState(false)
+  const navigate = useNavigate()
+  const { user, signOut } = useAuth()
+  const [signingOut, setSigningOut] = useState(false)
+
+  const handleSignOut = async () => {
+    setSigningOut(true)
+    try {
+      await signOut()
+      navigate('/login')
+    } finally {
+      setSigningOut(false)
+    }
+  }
 
   return (
     <div className="flex min-h-screen flex-col md:flex-row">
@@ -75,6 +97,29 @@ export function AppShell({ children }: AppShellProps) {
             </a>
           ))}
         </nav>
+        {user !== null ? (
+          // Collapses with the nav below the breakpoint (same menuOpen gate),
+          // and sits at the foot of the sidebar above it.
+          <div
+            className={cn(
+              'mt-4 flex-col gap-1 md:mt-auto md:flex',
+              menuOpen ? 'flex' : 'hidden',
+            )}
+          >
+            <span className="px-3 text-meta text-chrome-text">
+              Signed in as {user.first_name} {user.last_name}
+            </span>
+            <button
+              type="button"
+              onClick={handleSignOut}
+              disabled={signingOut}
+              className="flex items-center gap-2 rounded-card px-3 py-2 text-body font-semibold text-chrome-text transition-colors hover:text-chrome-text-active disabled:opacity-50"
+            >
+              <LogOutIcon className="size-4" />
+              {signingOut ? 'Signing out…' : 'Sign out'}
+            </button>
+          </div>
+        ) : null}
       </aside>
       <main className="min-w-0 flex-1 bg-surface p-4 text-text-primary md:p-8">
         {children}

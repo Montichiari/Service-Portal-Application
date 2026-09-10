@@ -1,19 +1,20 @@
 import { z } from 'zod'
 
 /**
- * Login form shape. requirements.md section 1 describes a non-empty,
- * valid-format email plus a non-empty password, and a standard submit that is
- * informational only — no credential check exists anywhere.
+ * Login form shape, from requirements.md AUTH-6/AUTH-7 (design.md §0 decision
+ * 6: the identifier is the email address, matching register — the prototype's
+ * `username` field and its hardcoded credential pair are gone).
  *
- * That is deliberately overridden for the current demo: the first field is a
- * plain username and a valid submit is checked in LoginPage against one
- * hardcoded credential pair (username / password). An exact match routes to
- * the Submit Service Request page; anything else is rejected inline. This is a
- * throwaway stand-in until real auth lands server-side in Phase 3 — it is not
- * the behaviour in requirements.md.
+ * Only what the client can decide on its own is checked here: both fields
+ * present, and the address shaped like one. There is deliberately no length or
+ * composition rule on `password` — the server's own login schema omits one for
+ * the same reason (AUTH-7): rejecting a too-short password client-side would
+ * answer "that isn't long enough to be one of ours" where the contract wants
+ * one indistinguishable failure, and it would lock out any account whose
+ * password predates a policy change.
  */
 export const loginSchema = z.object({
-  username: z.string().trim().min(1, 'Enter your username'),
+  email: z.email('Enter a valid email address'),
   password: z.string().min(1, 'Enter your password'),
 })
 

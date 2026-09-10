@@ -1,51 +1,57 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useState } from 'react'
-import type { ReactNode } from 'react'
 import { useForm } from 'react-hook-form'
 import { Link, useNavigate } from 'react-router-dom'
 import { AuthShell } from '@/components/shell/AuthShell'
 import { Button } from '@/components/ui/Button'
 import { CardDescription, CardHeader, CardTitle } from '@/components/ui/Card'
+import { Field } from '@/components/ui/Field'
 import { TextInput } from '@/components/ui/TextInput'
-import { useAuth, type Role } from '@/context/AuthContext'
+import { useAuth } from '@/context/AuthContext'
+import { applyFieldErrors, pageErrorMessage } from '@/lib/formErrors'
 import { loginSchema, type LoginValues } from '@/schemas/loginSchema'
 
-// Throwaway demo credential. requirements.md section 1 has no credential check
-// at all — a standard submit is informational only. This single hardcoded pair
-// stands in until real auth lands server-side in Phase 3: an exact match signs
-// the user in and routes to the Submit Service Request page, anything else is
-// rejected inline.
-const DEMO_USERNAME = 'username'
-const DEMO_PASSWORD = 'password'
+/**
+ * Sign in (`/login`) — wired to `POST /auth/login` (AUTH-6, AUTH-7) in
+ * T-AUTH-5. The demo credential pair and the two "Continue as …" role buttons
+ * are gone: there is exactly one way in now, and it goes through the real
+ * endpoint.
+ */
+
+// The fields this form renders, so a `422` naming anything else falls through
+// to the banner instead of vanishing into a control that isn't there.
+const LOGIN_FIELDS = ['email', 'password'] as const
 
 export default function LoginPage() {
   const navigate = useNavigate()
-  const { setRole } = useAuth()
-  const [rejected, setRejected] = useState(false)
+  const { signIn } = useAuth()
+  const [formError, setFormError] = useState<string | null>(null)
   const {
     register,
     handleSubmit,
-    formState: { errors },
+    setError,
+    formState: { errors, isSubmitting },
   } = useForm<LoginValues>({ resolver: zodResolver(loginSchema) })
 
-  const onValidSubmit = (values: LoginValues) => {
-    if (values.username === DEMO_USERNAME && values.password === DEMO_PASSWORD) {
-      // Matching pair = a successful sign-in: establish the cosmetic role the
-      // Task 3 guard will read, then go to the request form.
-      setRole('user')
-      navigate('/requests/new')
-      return
+  const onValidSubmit = async (values: LoginValues) => {
+    setFormError(null)
+    try {
+      await signIn(values)
+      // One post-login destination now that there is one sign-in path: the
+      // Requests Dashboard.
+      navigate('/')
+    } catch (error) {
+      // AUTH-7's message is rendered from the response, never from a local
+      // constant — the backend owns the wording, and the whole point of it is
+      // that "no such email" and "wrong password" read identically.
+      if (!applyFieldErrors(error, setError, LOGIN_FIELDS)) {
+        setFormError(pageErrorMessage(error))
+      }
     }
-    setRejected(true)
   }
 
-  // Drop the rejection notice as soon as the user edits either field.
-  const clearRejected = () => setRejected(false)
-
-  function continueAs(role: Role) {
-    setRole(role)
-    navigate('/')
-  }
+  // Drop the banner as soon as the user edits either field.
+  const clearFormError = () => setFormError(null)
 
   return (
     <AuthShell>
@@ -56,12 +62,12 @@ export default function LoginPage() {
         </CardDescription>
       </CardHeader>
 
-      {rejected ? (
+      {formError !== null ? (
         <p
           role="alert"
           className="rounded-card border border-danger bg-card px-3 py-2 text-dense font-semibold text-danger"
         >
-          Incorrect username or password
+          {formError}
         </p>
       ) : null}
 
@@ -70,16 +76,13 @@ export default function LoginPage() {
         noValidate
         onSubmit={handleSubmit(onValidSubmit)}
       >
-        <Field
-          label="Username"
-          htmlFor="login-username"
-          error={errors.username?.message}
-        >
+        <Field label="Email" htmlFor="login-email" error={errors.email?.message}>
           <TextInput
-            id="login-username"
-            autoComplete="username"
-            aria-invalid={errors.username ? true : undefined}
-            {...register('username', { onChange: clearRejected })}
+            id="login-email"
+            type="email"
+            autoComplete="email"
+            aria-invalid={errors.email ? true : undefined}
+            {...register('email', { onChange: clearFormError })}
           />
         </Field>
 
@@ -93,36 +96,17 @@ export default function LoginPage() {
             type="password"
             autoComplete="current-password"
             aria-invalid={errors.password ? true : undefined}
-            {...register('password', { onChange: clearRejected })}
+            {...register('password', { onChange: clearFormError })}
           />
         </Field>
 
-        <Button type="submit">Sign in</Button>
+        {/* Disabled for the duration of the request, not merely after it
+            succeeds — against a real endpoint a second click is a second
+            login, not a harmless no-op. */}
+        <Button type="submit" disabled={isSubmitting}>
+          {isSubmitting ? 'Signing in…' : 'Sign in'}
+        </Button>
       </form>
-
-      <div className="flex flex-col gap-2">
-        <span className="text-dense text-text-secondary">
-          Or continue with a demo role
-        </span>
-        <div className="flex gap-2">
-          <Button
-            type="button"
-            variant="secondary"
-            className="flex-1"
-            onClick={() => continueAs('user')}
-          >
-            Continue as User
-          </Button>
-          <Button
-            type="button"
-            variant="secondary"
-            className="flex-1"
-            onClick={() => continueAs('admin')}
-          >
-            Continue as Admin
-          </Button>
-        </div>
-      </div>
 
       <p className="text-dense text-text-secondary">
         Need an account?{' '}
@@ -134,39 +118,5 @@ export default function LoginPage() {
         </Link>
       </p>
     </AuthShell>
-  )
-}
-
-/**
- * Local label + inline-error wrapper around a Task 1 field primitive. Kept
- * private to this page on purpose — Task 2 must not add shared form primitives
- * (that gap is deferred), so this is not exported.
- */
-function Field({
-  label,
-  htmlFor,
-  error,
-  children,
-}: {
-  label: string
-  htmlFor: string
-  error?: string
-  children: ReactNode
-}) {
-  return (
-    <div className="flex flex-col gap-1">
-      <label
-        htmlFor={htmlFor}
-        className="text-dense font-semibold text-text-primary"
-      >
-        {label}
-      </label>
-      {children}
-      {error ? (
-        <p role="alert" className="text-meta text-danger">
-          {error}
-        </p>
-      ) : null}
-    </div>
   )
 }
