@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import type { ReactNode } from 'react'
 import { LogOutIcon, MenuIcon, XIcon } from 'lucide-react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
 import { cn } from '@/lib/utils'
 
@@ -22,19 +22,21 @@ import { cn } from '@/lib/utils'
  * a stale value there is harmless.
  *
  * Nav is exactly the two top-level destinations from design.md's routing
- * table. Links are plain anchors for now — active state and client-side
- * navigation are wired in the routing task.
+ * table, as router `<Link>`s (T-DEBT-2, closing frontend-contract.md §8.6):
+ * these were plain `<a href>` anchors, so every nav click cost a full document
+ * load and a redundant `GET /auth/me` to rebuild a session that had never
+ * actually gone anywhere. Active-link styling is still unbuilt — it was never
+ * specified, and picking a treatment here is a design decision, not a routing
+ * one.
  *
  * The account block below the nav is T-AUTH-5's: the app had no way to sign
  * out at all before it. It renders only for a session `GET /auth/me` actually
  * confirmed, so it doubles as the visible proof that a reload kept the
- * session. Routes themselves stay unguarded — that gap is Task 3's and is
- * explicitly out of this task's scope (frontend/CLAUDE.md, "Auth guard
- * pattern").
+ * session.
  */
 const NAV_ITEMS = [
-  { label: 'Requests Dashboard', href: '/' },
-  { label: 'Submit Request', href: '/requests/new' },
+  { label: 'Requests Dashboard', to: '/' },
+  { label: 'Submit Request', to: '/requests/new' },
 ]
 
 export interface AppShellProps {
@@ -87,14 +89,14 @@ export function AppShell({ children }: AppShellProps) {
           )}
         >
           {NAV_ITEMS.map((item) => (
-            <a
-              key={item.href}
-              href={item.href}
+            <Link
+              key={item.to}
+              to={item.to}
               onClick={() => setMenuOpen(false)}
               className="rounded-card px-3 py-2 text-body font-semibold text-chrome-text transition-colors hover:text-chrome-text-active"
             >
               {item.label}
-            </a>
+            </Link>
           ))}
         </nav>
         {user !== null ? (
