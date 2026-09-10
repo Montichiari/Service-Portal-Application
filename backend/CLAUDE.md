@@ -105,10 +105,44 @@ The envelope shape is fixed by `specs/api-phase/design.md §1` and
 ```
 
 Implemented via FastAPI exception handlers registered once in
-`app/main.py` — never per-route `try/except` reconstructing this shape by
-hand. If a new error case needs a new `code`, add it to the `code` enum
-documented in `design.md §1`'s error table and update that table in the
-same change; don't invent an undocumented code inline in a route.
+`app/main.py`'s `create_app()` — never per-route `try/except`
+reconstructing this shape by hand. If a new error case needs a new
+`code`, add it to the `code` enum documented in `design.md §1`'s error
+table and update that table in the same change; don't invent an
+undocumented code inline in a route.
+
+**Three handlers are required, not one**: `RequestValidationError` (→
+`422`, `XC-4`), framework-raised `HTTPException` including an unmatched
+route (→ envelope-wrapped, still `XC-4`), and a true catch-all for any
+other unhandled exception (→ `500`/`INTERNAL_ERROR`, `XC-14`). The third
+is the easiest to forget because nothing exercises it in normal
+development — routes don't throw arbitrary exceptions on purpose — but
+it's the one that matters most for never leaking a stack trace or an
+internal error message to a client. The catch-all must still log the full
+traceback server-side: suppressed for the client, not suppressed for the
+operator.
+
+**The trap worth knowing about** (`XC-15`, found reviewing `T-AUTH-2`):
+`response_model` filtering and error handling are the same security
+boundary, and only one of them looks like it. If serialization against a
+`response_model` fails, FastAPI's `ResponseValidationError` carries the
+offending value in its own message — and that value is precisely the
+field `response_model` existed to exclude (a `User` row's
+`password_hash`, say). A `500` handler doing `str(exc)` turns a careful
+exclusion into a live leak, via a path no success-path test ever touches.
+Never render an exception's own text into a response body. When you write
+an exception-origin test, cover all four origins — route body,
+dependency, response serialization, middleware stack — not just the
+obvious one.
+
+### App construction
+
+`app/main.py` exposes a `create_app()` factory (built in `T-AUTH-2`) —
+tests construct the app through this factory too, so a test run exercises
+the actual app the server runs, not a hand-assembled lookalike that could
+silently drift from it (missing a middleware registration, wrong handler
+order). Never construct a second `FastAPI()` instance elsewhere "for
+tests" or "for a script."
 
 ### Auth dependencies
 
@@ -118,16 +152,56 @@ there — never re-implements cookie-reading or role-checking inline. A
 route that needs "any authenticated user" depends on `get_current_user`;
 a route that needs a specific role depends on `require_role("admin")`,
 which itself depends on `get_current_user` (compose, don't duplicate the
-check).
+check). `require_role` is rank-based against the two-role hierarchy
+(`user` < `admin`), not exact-match — an admin passes a
+`require_role("user")` gate, matching `XC-6`'s "minimum required role"
+wording.
+
+**`get_current_user`'s source of truth**: loads the full user row from the
+database on every protected request rather than trusting the JWT's `role`
+claim alone (`requirements.md XC-13`) — decided during `T-AUTH-2`,
+reversing `design.md`'s original zero-DB-hit rationale on purpose. The
+token's signature/expiry check still happens first as a cheap pre-filter;
+the DB row is the final word on `role` and on whether the user is still
+active or exists at all.
 
 ### Cookies and JWT
 
 Cookie-setting and JWT encode/decode helpers live in `app/core/security.py`
-(or equivalent — pick one module and keep it there, don't scatter
+(built in `T-AUTH-1` — pick one module and keep it there, don't scatter
 `jwt.encode` calls across route files). Lifetimes (1 hr access / 30 day
 refresh) and cookie attributes (`httpOnly`, `Secure`, `SameSite=Lax`) are
 constants defined once in that module, referenced everywhere — changing a
 lifetime should be a one-line diff, not a grep-and-replace across routes.
+`clear_auth_cookies` lives alongside the setters, same module — logout
+needs matching attributes to actually clear a cookie, and that's the same
+concern as setting one.
+
+**Boundary with `app/config.py`**: genuinely environment-specific values
+(`JWT_SECRET_KEY`, `JWT_ALGORITHM`) stay in `config.py`/`.env`. Everything
+that's a project-wide constant regardless of environment (lifetimes,
+cookie attributes, `MAX_PASSWORD_BYTES`) lives in `security.py` instead —
+`config.py` is for "differs per environment," not "differs per developer's
+preference for where to put a number."
+
+Password hashing uses `bcrypt` directly, not `passlib[bcrypt]` — passlib
+1.7.4 is unmaintained and its backend probe breaks against bcrypt ≥4.1
+(raises `ValueError` on every hash call). Found and documented in
+`security.py`'s docstring during `T-AUTH-1` — don't reintroduce passlib
+later without knowing this.
+
+`security.py` exports `MAX_PASSWORD_BYTES = 72` (bcrypt's hard limit).
+`hash_password` raises rather than silently truncating an over-long
+password — truncation would make every password sharing a 72-byte prefix
+interchangeable, which is worse than rejecting it. Any register-schema
+validation against this limit imports the constant; it is never
+re-hardcoded as a literal `72` a second place.
+
+**Known gap, not blocking dev/demo work**: `.env`/`.env.example` currently
+ship the placeholder `JWT_SECRET_KEY=change-me-to-a-long-random-secret`.
+Fine for local development; every token is signed with a value that's
+committed to the repo, so this must be rotated to a real secret before any
+real deployment.
 
 Refresh tokens are never stored or logged raw — only `token_hash` (matching
 the existing `refresh_tokens.token_hash` column). If you find yourself
@@ -137,9 +211,31 @@ about to log a raw token "just for debugging," don't; log the `id` or
 ### CSRF header check
 
 The `X-Requested-With` check (`requirements.md XC-9`) is FastAPI middleware
-registered in `app/main.py`, applied globally to non-`GET` requests — not a
-per-route dependency. It runs _before_ auth checks (a request failing CSRF
-never needs its cookie inspected).
+registered in `app/main.py` via `create_app()`, applied to every
+state-changing request — not a per-route dependency. It checks header
+_presence_, any value, not an exact string — pinning to `XMLHttpRequest`
+specifically would only break compatible clients for no security benefit.
+`GET`, `HEAD`, and `OPTIONS` are exempt (`OPTIONS` because it's the
+browser's CORS preflight, which can't carry a custom header). It runs
+_before_ auth checks — a request failing CSRF never needs its cookie
+inspected.
+
+### CORS
+
+`FRONTEND_ORIGIN` (from `app/config.py` — environment-specific, same
+boundary as `JWT_SECRET_KEY`) is the sole allowed origin in FastAPI's
+`CORSMiddleware`, with `allow_credentials=True`. Never widen this to a
+wildcard `*` — CORS itself forbids combining a wildcard origin with
+credentials, so it isn't even a valid shortcut, just a broken one. Wired
+in `T-AUTH-3` (`XC-12`), not `T-AUTH-2` — it's backend-only but has no
+consumer until the frontend client exists.
+
+**Verify this covers error responses too**, not just `2xx` — a common
+`CORSMiddleware` ordering mistake exempts error responses from getting
+CORS headers, in which case the browser reports a `401`/`403`/`422`/`500`
+to `fetch` as an opaque network failure instead of a readable response.
+Test a failing cross-origin request explicitly; don't infer it from a
+passing success-path test.
 
 ## Testing
 
@@ -152,15 +248,29 @@ project — correctness against the actual constraint set matters more here
 than test runtime. This applies to API-phase tests too — an endpoint test
 against SQLite proves less than it looks like it proves.
 
-Every test lives in a transaction rolled back at teardown
-(`backend/tests/db/conftest.py`'s fixture), never manual row deletion.
-When adding a new constraint-enforcement test, verify it can actually
-fail: temporarily comment out the constraint, confirm the test goes red,
-then restore it. A constraint test that has never been observed to fail
-is not verified, only written.
+Every test lives in a transaction rolled back at teardown (the
+`db_session` fixture — originally `backend/tests/db/conftest.py`, scoped
+to that package only), never manual row deletion. When adding a new
+constraint-enforcement test, verify it can actually fail: temporarily
+comment out the constraint, confirm the test goes red, then restore it. A
+constraint test that has never been observed to fail is not verified,
+only written.
 
 **API-phase additions**:
 
+- `db_session` was promoted to a top-level `backend/tests/conftest.py`
+  during `T-AUTH-2` (needed early for that task's own tests, not deferred
+  to `T-AUTH-3` as originally planned). `_prepared_database` was made
+  non-autouse in the same change specifically so `tests/core/` still runs
+  with no Postgres available — verified against an unreachable DB URL.
+  Keep that property: a change here that makes Postgres implicitly
+  required for `tests/core/` again is a regression, not a simplification.
+- Any test client used for cookie-based auth flows must use
+  `base_url="https://testserver"`, never an `http://` base — the auth
+  cookies are `Secure`, and `httpx` silently drops `Secure` cookies
+  against a non-`https` base URL. This fails in a way that looks exactly
+  like a broken auth flow, not a test-config problem, so get it right
+  from the start rather than debugging it as a mystery.
 - Auth-flow tests need a test client that persists cookies across calls
   within one test (register → login → authenticated call, as one
   sequence) — set this up once as a fixture in
@@ -174,6 +284,9 @@ is not verified, only written.
   fail" discipline as a constraint test — force the transaction to fail
   partway and assert _neither_ write landed, not just that the endpoint
   returned an error.
+- `requirements.txt` includes `httpx2`, not `httpx` — this Starlette
+  version's `TestClient` requires that specific package. Don't "correct"
+  it back to `httpx` if you see it and don't recognize the name.
 
 ## Task workflow
 

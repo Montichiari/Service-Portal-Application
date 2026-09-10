@@ -13,3 +13,8 @@ bcrypt
 # Access-token encode/decode.
 pyjwt
 pytest
+# Required by fastapi.testclient / starlette.testclient. Starlette 1.x asks for
+# httpx2 specifically (httpx 2.x, distributed under a new package name), not
+# the older `httpx` distribution — installing that one leaves TestClient
+# raising "requires the httpx2 package".
+httpx2

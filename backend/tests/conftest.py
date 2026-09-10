@@ -1,4 +1,11 @@
-"""Shared fixtures for the schema contract suite (Task 6 / R10).
+"""Shared database fixtures for the whole test suite.
+
+Originally ``tests/db/conftest.py``, serving the schema contract suite (Task 6
+/ R10) alone. Promoted to the top level in T-AUTH-2, because the API tests
+under ``tests/api/`` need ``db_session`` too — ``get_current_user`` loads a
+real user row, so exercising it needs a real user in a real database.
+(T-AUTH-3's task notes list this promotion as its own first step; it came due
+one task earlier than expected.)
 
 The suite runs against a **real** Postgres database — never SQLite (R10,
 backend/CLAUDE.md): SQLite doesn't enforce ``CHECK`` constraints the same way
@@ -7,10 +14,14 @@ schema.
 
 Fixtures defined here:
 
-* ``_prepared_database`` (session, autouse) — creates the dedicated
+* ``_prepared_database`` (session) — creates the dedicated
   ``service_portal_test`` database if it's missing, then runs
   ``alembic upgrade head`` into it, once per test run. The suite is therefore
   self-provisioning: it never assumes someone migrated a database by hand.
+  Depended on explicitly by ``engine`` and ``alembic_config`` rather than being
+  autouse, so that the pure-unit suites (``tests/core/``) still run with no
+  Postgres available — as autouse at this level, it would have made every test
+  in the repo need a database.
 * ``engine`` (session) — a ``NullPool`` engine bound to ``TEST_DATABASE_URL``.
 * ``db_session`` (function) — wraps each test in an outer transaction plus a
   SAVEPOINT, both rolled back at teardown (R10). No test ever deletes rows to
@@ -38,8 +49,8 @@ from sqlalchemy.pool import NullPool
 from app.config import settings
 from app.db.models import ServiceRequest, Status, User
 
-# .../backend/tests/db/conftest.py -> parents[2] == .../backend
-BACKEND_DIR = Path(__file__).resolve().parents[2]
+# .../backend/tests/conftest.py -> parents[1] == .../backend
+BACKEND_DIR = Path(__file__).resolve().parents[1]
 
 TEST_DATABASE_URL = settings.TEST_DATABASE_URL
 
@@ -54,7 +65,7 @@ if TEST_DATABASE_URL == settings.DATABASE_URL:
 # alembic/env.py picks its target from settings.DATABASE_URL. Repoint that at
 # the test database for the whole process, so the programmatic
 # `alembic upgrade head` below (and anything else reading settings.DATABASE_URL
-# during the run) can never touch dev.
+# during the run — app.database's engine included) can never touch dev.
 settings.DATABASE_URL = TEST_DATABASE_URL
 
 
@@ -91,7 +102,7 @@ def _ensure_test_database() -> None:
         admin_engine.dispose()
 
 
-@pytest.fixture(scope="session", autouse=True)
+@pytest.fixture(scope="session")
 def _prepared_database() -> None:
     """Provision + migrate the test database once for the whole run."""
     _ensure_test_database()
@@ -140,7 +151,7 @@ def db_session(engine: Engine) -> Iterator[Session]:
 
 
 @pytest.fixture
-def alembic_config() -> Config:
+def alembic_config(_prepared_database: None) -> Config:
     return make_alembic_config()
 
 

@@ -145,17 +145,61 @@ future slice depends on — build them once, here, correctly.
 
 **Acceptance criteria**:
 
-- [ ] `XC-4`: a request with an invalid field returns the custom envelope,
+- [x] `XC-4`: a request with an invalid field returns the custom envelope,
       not FastAPI's default shape
-- [ ] `XC-5`: a protected route with no cookie returns `401` in the
+- [x] `XC-5`: a protected route with no cookie returns `401` in the
       correct envelope
-- [ ] `XC-6`: a `require_role("admin")` route hit by a `user`-role token
+- [x] `XC-6`: a `require_role("admin")` route hit by a `user`-role token
       returns `403`
-- [ ] `XC-9`: a `POST` with no `X-Requested-With` header returns `403`
+- [x] `XC-9`: a `POST` with no `X-Requested-With` header returns `403`
       before any route logic runs
-- [ ] No auth _endpoints_ added yet — this is middleware only, exercised
+- [x] No auth _endpoints_ added yet — this is middleware only, exercised
       via a minimal throwaway test route if there's nothing real to hang
       it on yet
+- [x] `XC-14`: **added on later review** — an unhandled exception (not a
+      validation error, not an `HTTPException`) returns `500` in the
+      envelope shape, with a generic message that provably doesn't leak
+      the real exception's text. Verified: the handler already existed and
+      was already tested from `T-AUTH-2`'s original work — the gap was
+      that no requirement ID or acceptance line made it visible to a
+      reviewer, not that it was missing. Coverage was then extended to all
+      four exception origins (route body, dependency, response
+      serialization, middleware stack), plus file-path leakage, raw-
+      fallback-response shape, and operator-side traceback logging.
+
+**Complete.** 90 tests total (39 new), mutation-tested per the same
+"verify it can fail" rule as `T-AUTH-1`. Corrections folded back into
+`requirements.md`/`design.md` rather than left as implementation-only
+notes: `XC-9` now exempts `HEAD`/`OPTIONS` (not just `GET`) and checks
+header _presence_, not an exact value; a new `XC-12` covers CORS, which
+was missing from the original spec entirely and would have silently
+broken `T-AUTH-4`; `XC-4` now explicitly covers framework-raised errors
+(an unmatched route), not only Pydantic validation failures.
+
+Built via a `create_app()` factory in `main.py` — tests construct the same
+app the server runs, not a hand-assembled lookalike that could drift from
+it. `require_role` is rank-based against the two-role hierarchy (`XC-6`
+already said "minimum required role" — this confirms the spec, doesn't
+change it): an admin passes a `require_role("user")` gate.
+
+**Resolved**: `get_current_user` loads the full user row from the database
+on every protected request, rather than trusting the JWT's `role` claim
+alone. This reverses `design.md`'s originally stated rationale for
+embedding `role` in the token (avoiding a DB hit per request) — kept
+deliberately, not by default; see the note below this task list for the
+full tradeoff and the resulting `XC-13`.
+
+`db_session` was promoted to a top-level `tests/conftest.py` during this
+task already (this task's own tests needed it from `tests/api/`) — the
+prerequisite originally written into `T-AUTH-3` below is done; that task
+should verify it, not redo it.
+
+**Resolved**: keep `get_current_user` loading the fresh user row on every
+protected request (immediate effect for deactivation/deletion, free real
+names for `/auth/me`) over reverting to trusting the JWT claims alone.
+`design.md`'s JWT claims section and `requirements.md`'s new `XC-13`
+carry the final wording — this note is kept only as a record that the
+choice was made deliberately, not defaulted into.
 
 ---
 
@@ -163,16 +207,12 @@ future slice depends on — build them once, here, correctly.
 
 **Goal**: The five real endpoints, built on T-AUTH-1 and T-AUTH-2.
 
-**Covers**: `AUTH-1` through `AUTH-16`.
+**Covers**: `AUTH-1` through `AUTH-16`, `XC-12`, `XC-13`, `XC-15`.
 
-**Prerequisite, found by `T-AUTH-1`'s report**: `db_session` currently
-lives in `tests/db/conftest.py`, visible only to that package. This task's
-testing convention (a cookie-persisting client for
-register → login → authenticated-call sequences, per
-`backend/CLAUDE.md`'s Testing section) needs it from `tests/api/` too —
-promote it to a top-level `tests/conftest.py` as the first step of this
-task, before writing that fixture, not as a fix-up after a test fails to
-find it.
+**Prerequisite check (not a new step — already done in `T-AUTH-2`)**:
+confirm `db_session` is in a top-level `tests/conftest.py` and visible to
+`tests/api/`. If it's still only in `tests/db/conftest.py`, that's a
+regression to fix, not this task's original promotion work to redo.
 
 **Scope**: Implement in this order (each depends on the last):
 
@@ -184,6 +224,20 @@ find it.
    smoke test for T-AUTH-2's dependency)
 4. `POST /auth/refresh` — `AUTH-9` through `AUTH-11`
 5. `POST /auth/logout` — `AUTH-12`, `AUTH-13`
+6. Wire CORS middleware (`XC-12`) — `FRONTEND_ORIGIN` from config, explicit
+   origin (never a wildcard), `allow_credentials=True`. Backend-only work,
+   belongs here since this is the last backend-only task before `T-AUTH-4`
+   needs it working; nothing in steps 1–5 depends on it, but `T-AUTH-4`
+   silently fails without it.
+
+**Test-writing gotcha, flagged by `T-AUTH-2`'s report**: the
+cookie-persisting client fixture must use `base_url="https://testserver"`,
+not an `http://` base — the auth cookies are `Secure`, and `httpx` drops
+`Secure` cookies silently against a non-`https` base URL. Get this wrong
+and the register → login → authenticated-call sequence fails in a way
+that looks exactly like a broken auth flow, not a test-harness config
+issue — worth getting right the first time rather than debugging it as a
+mystery later.
 
 **Acceptance criteria** (contract tests, real Postgres, per
 `backend/CLAUDE.md`'s testing convention):
@@ -193,8 +247,16 @@ find it.
 - [ ] `AUTH-2`: duplicate email returns `409`
 - [ ] `AUTH-4`: a `role` field in the register body is ignored, not
       applied
-- [ ] `AUTH-5`: no response body anywhere contains `password` or
-      `password_hash`
+- [ ] `AUTH-5`/`XC-15`: no response body anywhere contains `password` or
+      `password_hash` — **including error responses**, not just `2xx`.
+      `T-AUTH-2`'s review surfaced that a `response_model` serialization
+      failure carries the offending value inside
+      `ResponseValidationError`, so the `500` path is a real leak vector
+      for exactly the field `response_model` was excluding. The generic
+      handler already covers this; add a test that would catch a
+      regression on `/auth/register` or `/auth/me` specifically, since
+      those are the endpoints where a `User` row is the serialization
+      source
 - [ ] `AUTH-3`: an 11-character password returns `422`; a 12-character
       all-lowercase password with no digit or symbol succeeds — confirms
       the rule is length-only, not silently composition-gated
@@ -210,6 +272,18 @@ find it.
 - [ ] `AUTH-11`: replaying an already-rotated refresh token revokes the
       rest of that user's active refresh tokens
 - [ ] `AUTH-12`/`AUTH-13`: logout is idempotent, always `204`
+- [ ] `XC-12`: a preflight `OPTIONS` and a real request from
+      `FRONTEND_ORIGIN` both succeed with credentials; a request from an
+      arbitrary other origin is rejected by CORS. **Also test a failing
+      request** (e.g. bad credentials against `/auth/login`) from
+      `FRONTEND_ORIGIN` — confirm the `401` response still carries the
+      CORS headers, not just `2xx` responses. This is the specific gotcha
+      that silently breaks a frontend's ability to read error bodies from
+      cross-origin calls if missed.
+- [ ] `XC-13`: a user deactivated (`is_active = false`) after their token
+      was issued is rejected `401` on their very next request, not only
+      after the token's natural expiry — confirms the DB lookup is
+      actually happening, not just present in the code path
 
 ---
 

@@ -36,7 +36,12 @@ with explicit offset (e.g. `2026-09-04T09:12:00Z`) in every response body.
 SHALL respond `422` with body `{ "error": { "code": "VALIDATION_ERROR",
 "message": <string>, "fields": { <field_name>: [<message>, ...] } } }`,
 mapping every failing field into `fields` — never FastAPI's default
-`{"detail": [...]}` shape.
+`{"detail": [...]}` shape. **This extends to every error response, not
+only validation failures**: an unmatched route, or any other
+framework/Starlette-raised `HTTPException`, is wrapped in the same
+envelope shape too — no path in the application ever returns Starlette's
+bare `{"detail": "Not Found"}` or similar. Found worth stating explicitly
+during `T-AUTH-2` — the original wording only named the validation case.
 
 **XC-5** (Unwanted behavior) IF a request has no valid access-token cookie
 on a protected route THEN THE SYSTEM SHALL respond `401` with `error.code =
@@ -60,10 +65,18 @@ differs from documented behavior; if a field is documented as "not
 accepted," its presence in the body must not change the outcome.
 
 **XC-9** (Ubiquitous) THE SYSTEM SHALL require a custom header
-(`X-Requested-With: XMLHttpRequest`) on every non-`GET` request, and IF the
-header is absent THEN THE SYSTEM SHALL respond `403` with `error.code =
-"FORBIDDEN"` before evaluating any other request content (CSRF mitigation,
-design.md §1).
+(`X-Requested-With`, **any value** — its presence is what matters, not
+what it says, since the protection is "a cross-site form post can't set
+custom headers," not the specific string) on every state-changing request
+(`POST`/`PUT`/`PATCH`/`DELETE` — **not** `GET`, `HEAD`, or `OPTIONS`), and
+IF the header is absent THEN THE SYSTEM SHALL respond `403` with
+`error.code = "FORBIDDEN"` before evaluating any other request content,
+including authentication (CSRF mitigation, design.md §1). `OPTIONS` is
+exempt specifically because it's the browser-generated CORS preflight —
+the browser sends it automatically and cannot attach a custom header, so
+requiring one there would break every cross-origin write before the real
+request is even attempted. Corrected during `T-AUTH-2` — the original
+wording specified an exact header value and only exempted `GET`.
 
 **XC-10** (Ubiquitous) THE SYSTEM SHALL paginate every list endpoint with
 `?page` (default `1`) and `?page_size` (default `20`, max `100`) query
@@ -72,6 +85,63 @@ params, returning `{ "items": [...], "total": <int>, "page": <int>,
 
 **XC-11** (Unwanted behavior) IF `page_size` exceeds `100` THEN THE SYSTEM
 SHALL clamp it to `100` rather than reject the request.
+
+**XC-12** (Ubiquitous) THE SYSTEM SHALL allow cross-origin requests from
+`FRONTEND_ORIGIN` (an explicit configured origin, **never** a wildcard)
+with credentials (`Access-Control-Allow-Credentials: true`), via CORS
+middleware. A wildcard origin is incompatible with credentialed requests
+per the CORS spec itself — browsers reject the combination outright — so
+this can't be the usual "just allow `*`" shortcut. **Gap found late**:
+absent from the original design.md; without it, the browser blocks every
+cookie-bearing cross-origin call `T-AUTH-4`'s client makes, before any
+application code runs. Not covered by any earlier task's scope — added
+here as its own requirement so it isn't missed a second time. **This
+applies equally to error responses** (`401`/`403`/`422`/`500`, not only
+`2xx`) — CORS middleware ordering can silently exempt error responses from
+getting the right headers, in which case the browser reports the failure
+to JavaScript as an opaque network error instead of exposing the actual
+status and envelope body. If `T-AUTH-4`'s client can't read a `401`'s
+`error.code` from a cross-origin call, this is almost certainly why —
+verify it explicitly rather than assuming success-path testing covers it.
+
+**XC-13** (State-driven) WHILE processing any protected request, THE
+SYSTEM SHALL load the authenticated user's current row from the database
+rather than trusting the JWT's `role` claim alone — IF that row no longer
+exists, or `is_active` is `false`, THEN THE SYSTEM SHALL respond `401` per
+`XC-5`, even though the access token itself is still validly signed and
+unexpired. **Decided during `T-AUTH-2`, resolving what was initially left
+open**: this trades one query per protected request for immediate effect
+of deactivation or deletion, rather than letting a stale token remain
+valid for up to its full 1-hour lifetime, and gets `/auth/me` its display
+name for free in the same query.
+
+**XC-14** (Unwanted behavior) IF an unhandled exception occurs anywhere
+while processing a request — in a route body, in a dependency, during
+response serialization, or inside the middleware stack — THEN THE SYSTEM
+SHALL respond `500` with `error.code = "INTERNAL_ERROR"` and a generic
+message that never includes the exception's message, type, stack trace,
+or any internal file path, in the same envelope shape as every other
+error (JSON content-type, envelope structure — never Starlette's raw
+fallback response), and SHALL still log the full traceback server-side so
+the detail reaches an operator even though it never reaches the client.
+
+**XC-15** (Unwanted behavior) IF response serialization fails against a
+`response_model` THEN THE SYSTEM SHALL NOT include the offending value in
+the `500` response — FastAPI's `ResponseValidationError` carries that
+value in its own message, and the offending value is by definition the
+field `response_model` existed to exclude. A handler doing `str(exc)`
+would turn `AUTH-5` ("no response body contains `password_hash`, ever")
+into a live leak via the error path, invisible to every success-path
+test. `AUTH-5`'s "ever" includes the error path; this requirement makes
+that explicit rather than implied.
+
+> **Correction on `XC-14`'s history**: an earlier revision of this file
+> claimed the handler was untested. That was wrong — it was built and
+> tested during `T-AUTH-2`, and was caught by that task's mutation pass.
+> What was actually missing was any _requirement ID_ or acceptance-table
+> line, so a reviewer reading the task report had no way to confirm it
+> existed. A reporting gap, not a build gap. Recorded because the
+> distinction matters: the fix was traceability, not code.
 
 ---
 

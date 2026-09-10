@@ -71,12 +71,25 @@ All endpoints are under `/api/v1`.
 - **CSRF**: cookie-based auth without a bearer header is CSRF-exposed by
   default. `SameSite=Lax` blocks cross-site POST from top-level navigation
   but not from same-site-adjacent vectors depending on browser behavior.
-  **Decided**: state-changing endpoints (`POST`/anything non-`GET`) require
-  a custom header (`X-Requested-With: XMLHttpRequest` is the
-  minimum-effort version) that a cross-site form post can't set — a
-  lightweight check, not a full double-submit-cookie scheme. Adequate for
-  this project's scope; revisit before any real deployment beyond the
-  capstone demo.
+  **Decided**: state-changing endpoints (`POST`/`PUT`/`PATCH`/`DELETE`)
+  require a custom header (`X-Requested-With` — presence only, any value;
+  the protection is that a cross-site form post can't set custom headers
+  at all, not what the header says, so pinning to an exact value like
+  `XMLHttpRequest` adds nothing and only breaks clients that spell it
+  differently) — a lightweight check, not a full double-submit-cookie
+  scheme. `GET`, `HEAD`, and `OPTIONS` are exempt — `OPTIONS` specifically
+  because it's the browser's own CORS preflight, sent automatically and
+  incapable of carrying a custom header. Adequate for this project's
+  scope; revisit before any real deployment beyond the capstone demo.
+- **CORS**: `FRONTEND_ORIGIN` (an explicit configured origin) is allowed
+  via CORS middleware with `allow_credentials=True` — never a wildcard
+  origin, which the CORS spec itself makes incompatible with credentialed
+  requests (browsers reject that combination). **This was missing from
+  the original draft of this document** — found during `T-AUTH-2`'s
+  review, before it could silently break `T-AUTH-4`'s browser-based fetch
+  calls. Without it, every cookie-bearing cross-origin request from the
+  frontend dev server is blocked by the browser before any backend code
+  even runs.
 - **Rate limiting** on `/auth/login`: **deferred**, not built in this
   phase. No brute-force protection exists yet — noted explicitly rather
   than silently absent, and picked back up in a later hardening pass (see
@@ -94,10 +107,20 @@ All endpoints are under `/api/v1`.
 }
 ```
 
-`role` is embedded so the backend can authorize without a DB round-trip on
-every request — but role changes (none currently possible via the API) would
-require the token to be re-issued to take effect. Worth knowing as a
-limitation, not a bug.
+`role` is embedded in the claims, but **the backend does not trust that
+claim value directly** — `get_current_user` re-loads the user's row from
+the database on every protected request (`XC-13`), so `role` (and every
+other field it returns) reflects current state, not what was true when the
+token was issued. **Decided during `T-AUTH-2`**, reversing this section's
+original draft rationale (which assumed a claims-only check specifically
+to avoid a DB hit per request): the tradeoff — one extra query per
+protected request — buys immediate effect for deactivation or deletion,
+rather than a stale token remaining valid for up to its full 1-hour
+lifetime after either happens. Worth naming plainly since it contradicts
+the naive read of "why put `role` in a JWT at all if you're going to hit
+the DB anyway": the claim is still useful as a _cheap pre-check_ before
+the query (an obviously-tampered or expired token is rejected without
+touching the database at all) — it's just not the final word on role.
 
 **Lifetimes**: access token `exp` = 1 hour from issue. Refresh token
 (opaque, stored hashed in `refresh_tokens`) = 30 days from issue,
