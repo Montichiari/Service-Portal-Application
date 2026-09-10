@@ -548,15 +548,43 @@ anyone later trusts it as an access control.
 
 **Acceptance criteria**:
 
-- [ ] Signed out, visiting `/` redirects to `/login` rather than
+- [x] Signed out, visiting `/` redirects to `/login` rather than
       rendering the shell
-- [ ] Signed in, a hard reload of `/` stays on `/` — no flash of
+- [x] Signed in, a hard reload of `/` stays on `/` — no flash of
       `/login` while `GET /auth/me` is in flight
-- [ ] `/login` and `/register` remain reachable while signed out
-- [ ] An unmatched URL renders a not-found page, not a blank screen
-- [ ] `AppShell` nav uses `<Link>`; clicking it does not trigger a full
+- [x] `/login` and `/register` remain reachable while signed out
+- [x] An unmatched URL renders a not-found page, not a blank screen
+- [x] `AppShell` nav uses `<Link>`; clicking it does not trigger a full
       page reload (verify in the network tab — no document request)
-- [ ] The guard's cosmetic-only nature is commented at its definition
+- [x] The guard's cosmetic-only nature is commented at its definition
+
+**Complete.** The pending-state criterion was verified by removing the
+`isLoading` branch and confirming the failure: without it, a signed-in
+user isn't briefly flashed the login page — they're bounced there
+permanently, 8/8 samples, never getting back. Worth recording how much
+worse the real failure was than the predicted one, and how it would
+otherwise have been found: only by hard-reloading while signed in, which
+rarely happens during development.
+
+**Structural decision worth carrying forward**: routes are guarded as a
+group, not with per-route wrappers. A per-route wrapper makes protection
+something you must remember to add, so a future route ships unguarded by
+omission; guarding the block makes it the default, so a route ships
+unguarded only deliberately. Same principle as `XC-8` (server-controlled
+fields never accepted from clients) and sub-resources over embedded
+collections — make the safe thing structural rather than a thing to
+remember.
+
+Also verified: the redirect uses `replace`, not `push`, so Back doesn't
+trap the user in a redirect loop. Not-found is public and outside the
+guard on purpose, so a mistyped URL says so in both session states rather
+than silently becoming a login page. Pending renders `null` rather than a
+spinner — the loading pattern is established once, in `T-SR-1`, and
+inventing a second one here first is what that rule exists to prevent.
+
+Deliberately out of scope: active-link styling (a design decision, never
+specified) and return-to-intended-destination after login (login still
+always lands on `/`).
 
 ---
 
