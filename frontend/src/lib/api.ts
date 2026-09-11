@@ -364,3 +364,143 @@ export function getMe(signal?: AbortSignal): Promise<SessionUser> {
 export function logout(): Promise<void> {
   return request<void>('/auth/logout', { method: 'POST' })
 }
+
+// --- Shared shapes (design.md §1) --------------------------------------------
+
+/**
+ * The two closed vocabularies the API uses as plain strings, declared here
+ * rather than next to the pills that colour them.
+ *
+ * Both are wire values, so this module owns them and the presentation layer
+ * imports them — the reverse would make `api.ts` depend on a component, and
+ * two independent copies are how frontend-contract.md §9-#8's
+ * two-non-matching-status-enums problem happened in the first place.
+ */
+export type Priority = 'low' | 'medium' | 'high'
+
+/** The four seeded `statuses` rows (design.md §3). `draft` is not one of them. */
+export type StatusName = 'open' | 'in_progress' | 'resolved' | 'closed'
+
+/** design.md §1's `Status` — the whole row, not just its name. */
+export interface Status {
+  id: string
+  name: StatusName
+  sort_order: number
+  is_terminal: boolean
+}
+
+/**
+ * design.md §1's `UserSummary` — a reference for display, deliberately not the
+ * full user (no email, no timestamps).
+ */
+export interface UserSummary {
+  id: string
+  first_name: string
+  last_name: string
+  role: UserRole
+}
+
+/** XC-10's list envelope. `total` is what *this caller* can see, not the table. */
+export interface Page<T> {
+  items: T[]
+  total: number
+  page: number
+  page_size: number
+}
+
+// --- Statuses (design.md §3) -------------------------------------------------
+
+/**
+ * ST-1/ST-2. Public — no session needed, and not paginated: four rows, always.
+ *
+ * This is the authority on which status names exist. A hardcoded list in the
+ * frontend would be free to drift from the seed, and SR-3 answers an
+ * unrecognised name with a `422` rather than an empty list, so the drift would
+ * surface as a filter that errors rather than one that finds nothing.
+ */
+export function getStatuses(signal?: AbortSignal): Promise<{ items: Status[] }> {
+  return request<{ items: Status[] }>('/statuses', { signal })
+}
+
+// --- Service requests (design.md §4) -----------------------------------------
+
+/** One shape for list and detail alike (design.md §0 decision 2). */
+export interface ServiceRequest {
+  id: string
+  title: string
+  request_type: string
+  priority: Priority
+  status: Status
+  requestor: UserSummary
+  /**
+   * Always `null` this phase — there is no assignment path and `PATCH` is
+   * deferred (design.md §7). Optional because the column is nullable, not
+   * because anything populates it yet.
+   */
+  assignee: UserSummary | null
+  created_at: string
+  updated_at: string
+  description: string
+}
+
+/** `GET /service-requests`' query string (SR-3, SR-4, XC-10). */
+export interface ServiceRequestQuery {
+  page?: number
+  page_size?: number
+  /** A `name` from `getStatuses`, never a string typed out here (SR-3). */
+  status?: StatusName
+  priority?: Priority
+}
+
+function queryString(query: ServiceRequestQuery): string {
+  const params = new URLSearchParams()
+  // Omitted rather than sent empty: the backend reads "absent" as "no filter",
+  // and `?status=` would reach `_resolve_status_filter` as a name to look up.
+  for (const [key, value] of Object.entries(query)) {
+    if (value !== undefined) params.set(key, String(value))
+  }
+  const rendered = params.toString()
+  return rendered === '' ? '' : `?${rendered}`
+}
+
+/** SR-1 through SR-5, SR-15. Scoping is the server's (owner, or all for admin). */
+export function getServiceRequests(
+  query: ServiceRequestQuery = {},
+  signal?: AbortSignal,
+): Promise<Page<ServiceRequest>> {
+  return request<Page<ServiceRequest>>(`/service-requests${queryString(query)}`, {
+    signal,
+  })
+}
+
+/**
+ * SR-6's body. The three fields SR-10/XC-8 name as server-controlled
+ * (`request_type`, `requestor_id`, `current_status_id`) are absent by
+ * construction, so there is nothing for a caller to supply and have ignored.
+ */
+export interface CreateServiceRequestInput {
+  title: string
+  description: string
+  priority: Priority
+}
+
+/** SR-6. Also writes the request's first `status_history` row (SR-14). */
+export function createServiceRequest(
+  input: CreateServiceRequestInput,
+): Promise<ServiceRequest> {
+  return request<ServiceRequest>('/service-requests', { method: 'POST', body: input })
+}
+
+/**
+ * SR-11 through SR-13. A malformed id, a missing row and someone else's
+ * request are one answer — `404`/`NOT_FOUND` — so a caller cannot tell them
+ * apart, and neither should the UI try to.
+ */
+export function getServiceRequest(
+  id: string,
+  signal?: AbortSignal,
+): Promise<ServiceRequest> {
+  return request<ServiceRequest>(`/service-requests/${encodeURIComponent(id)}`, {
+    signal,
+  })
+}

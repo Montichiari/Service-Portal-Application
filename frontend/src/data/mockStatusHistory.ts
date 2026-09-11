@@ -1,8 +1,15 @@
 /**
- * Hardcoded status_history for request 4268 (see data/mockRequestDetail.ts) —
- * the audit trail behind the Track Request Status page. No backend this phase
- * (frontend/CLAUDE.md "Non-goals"); design.md's per-page data strategy renders
- * this fixed array regardless of the `:id` in the URL.
+ * Hardcoded status_history — the audit trail behind the Track Request Status
+ * page, rendered regardless of the `:id` in the URL.
+ *
+ * **The last surviving prototype fixture.** T-SR-1 retired mockRequests.ts and
+ * mockRequestDetail.ts when the dashboard, submit and detail pages went to the
+ * real API; this one outlives them because `T-SC-1` owns its replacement — the
+ * client-side merge of `GET /statuses` against
+ * `GET /service-requests/{id}/status-changes` (design.md §5). The whole
+ * five-state vocabulary below goes with it: the backend has four statuses and
+ * no `assigned` state, and there is no assignment data behind that label at
+ * all (`assignee` is always null this phase).
  *
  * Entries are in chronological order (oldest first) — the order the Timeline
  * renders them top to bottom. A `timestamp` of `null` marks a step the request

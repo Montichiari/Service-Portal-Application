@@ -28,7 +28,6 @@ const twMerge = extendTailwindMerge({
             'status-in-progress',
             'status-resolved',
             'status-closed',
-            'status-draft',
             'priority-low',
             'priority-medium',
             'priority-high',

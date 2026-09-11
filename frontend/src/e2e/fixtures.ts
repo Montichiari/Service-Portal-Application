@@ -78,6 +78,56 @@ export function signedInAs(user: TestUser): string {
 }
 
 /**
+ * Sign in on an `APIRequestContext` so it can make authenticated calls.
+ *
+ * This context's cookie jar is its own — separate from any `page`'s — which is
+ * what lets one test seed data as one user while the browser is signed in as
+ * another. That separation is the whole mechanism behind the SR-12 test.
+ */
+export async function signInViaApi(
+  request: APIRequestContext,
+  user: TestUser,
+): Promise<void> {
+  const response = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
+    headers: { 'X-Requested-With': 'playwright' },
+    data: { email: user.email, password: user.password },
+  })
+  expect(response.status(), `signing in ${user.email}`).toBe(200)
+}
+
+export interface SeededRequest {
+  id: string
+  title: string
+}
+
+/**
+ * File a request straight against the API, as whoever `request` is signed in
+ * as.
+ *
+ * Not through the submit form: only the create-then-see test is about that
+ * form, and routing every other test's setup through it would make an
+ * unrelated markup change fail tests that have nothing to do with it — the
+ * same reasoning as `registerViaApi`.
+ */
+export async function createRequestViaApi(
+  request: APIRequestContext,
+  input: { title: string; description: string; priority: 'low' | 'medium' | 'high' },
+): Promise<SeededRequest> {
+  const response = await request.post(`${API_BASE_URL}/api/v1/service-requests`, {
+    headers: { 'X-Requested-With': 'playwright' },
+    data: input,
+  })
+  expect(response.status(), `creating ${input.title}`).toBe(201)
+  return (await response.json()) as SeededRequest
+}
+
+/** A title nothing else in the database will share, so a locator can't collide. */
+export function uniqueTitle(prefix: string): string {
+  const suffix = Math.random().toString(36).slice(2, 8)
+  return `${prefix} ${Date.now()}-${suffix}`
+}
+
+/**
  * A test that gets its own registered, not-yet-signed-in user.
  *
  * Playwright names a fixture's second parameter `use` by convention; it is

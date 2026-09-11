@@ -23,7 +23,6 @@
   --color-status-in-progress: var(--status-in-progress);
   --color-status-resolved: var(--status-resolved);
   --color-status-closed: var(--status-closed);
-  --color-status-draft: var(--status-draft);
 
   --color-priority-low: var(--priority-low);
   --color-priority-medium: var(--priority-medium);

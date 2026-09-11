@@ -5,6 +5,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { AuthShell } from '@/components/shell/AuthShell'
 import { Button } from '@/components/ui/Button'
 import { CardDescription, CardHeader, CardTitle } from '@/components/ui/Card'
+import { ErrorBanner } from '@/components/ui/ErrorBanner'
 import { Field } from '@/components/ui/Field'
 import { TextInput } from '@/components/ui/TextInput'
 import { register as registerAccount } from '@/lib/api'
@@ -102,14 +103,7 @@ export default function RegisterPage() {
         </p>
       ) : null}
 
-      {formError !== null ? (
-        <p
-          role="alert"
-          className="rounded-card border border-danger bg-card px-3 py-2 text-dense font-semibold text-danger"
-        >
-          {formError}
-        </p>
-      ) : null}
+      {formError !== null ? <ErrorBanner message={formError} /> : null}
 
       <form
         className="flex flex-col gap-4"

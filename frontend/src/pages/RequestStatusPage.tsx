@@ -2,7 +2,6 @@ import { Link, useParams } from 'react-router-dom'
 import { AppShell } from '@/components/shell/AppShell'
 import { Card } from '@/components/ui/Card'
 import { Timeline } from '@/components/ui/Timeline'
-import { mockRequestDetail } from '@/data/mockRequestDetail'
 import {
   STATUS_HISTORY_LABELS,
   mockStatusHistory,
@@ -10,13 +9,21 @@ import {
 
 /**
  * Track Request Status (`/requests/:id/status`). Post-login page, so it uses
- * AppShell. Read-only: no forms, no validation, no network calls (design.md
- * per-page data strategy, requirements.md section 6, tasks.md Task 6).
+ * AppShell.
  *
- * Per design.md's per-page data strategy this page always renders the one
- * hardcoded status_history from data/mockStatusHistory.ts and ignores the `:id`
- * in the URL for data. The param is read only so the "Back to request details"
- * link stays pointed at the URL the user came from (fallback: the mock's id).
+ * **Still on prototype data, deliberately.** `T-SC-1` owns this page: it
+ * replaces the fixed five-row template below by merging `GET /statuses`
+ * against `GET /service-requests/{id}/status-changes` (design.md §5), and
+ * retires `STATUS_HISTORY_LABELS` and the whole `StatusHistoryState`
+ * vocabulary with it — the backend has four statuses and no `assigned` state,
+ * and there is no assignment data behind that label at all.
+ *
+ * T-SR-1 touched this page for one reason only: it deleted
+ * data/mockRequestDetail.ts, which this heading used for the request's title.
+ * The title is gone rather than fetched — pulling the real request in here
+ * would mean a real heading above an invented timeline, which reads as more
+ * trustworthy than it is. The id comes from the URL, which is the one thing
+ * this page legitimately knows until T-SC-1.
  *
  * The history array is already oldest-first, which is the order the Timeline
  * draws top to bottom (chronological). Entries with a timestamp are reached
@@ -28,7 +35,7 @@ import {
  */
 export default function RequestStatusPage() {
   const { id } = useParams()
-  const requestId = id ?? mockRequestDetail.id
+  const requestId = id ?? ''
 
   const steps = mockStatusHistory.map((entry) => ({
     label: STATUS_HISTORY_LABELS[entry.status],
@@ -40,8 +47,8 @@ export default function RequestStatusPage() {
     <AppShell>
       <div className="content-detail flex flex-col gap-6">
         <header className="flex flex-col gap-2">
-          <p className="text-dense text-text-secondary">
-            Request #{requestId} · {mockRequestDetail.title}
+          <p className="text-dense break-all text-text-secondary">
+            Request {requestId}
           </p>
           <h1 className="text-h2 font-semibold text-text-primary">
             Status history

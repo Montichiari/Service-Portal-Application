@@ -1,3 +1,4 @@
+import type { Priority } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
 /**
@@ -5,9 +6,13 @@ import { cn } from '@/lib/utils'
  * the caller passes only `priority`; colour and filled/outline come from the
  * priority palette in specs/frontend-phase/design-tokens.md. A distinct hue
  * pairing from status keeps the two from being confused at a glance.
+ *
+ * `Priority` comes from lib/api.ts (T-SR-1) — it is a wire value fixed by
+ * SR-4's CHECK constraint, so the contract owns it and this file owns only how
+ * it looks. Unlike status, the set is static in code rather than a lookup
+ * table, which is why the filter dropdown hardcodes these three and fetches
+ * the statuses.
  */
-export type Priority = 'low' | 'medium' | 'high'
-
 const PRIORITY_CONFIG: Record<Priority, { label: string; className: string }> = {
   low: {
     label: 'Low',
