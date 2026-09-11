@@ -119,6 +119,38 @@ class ForbiddenError(APIError):
     default_message = "You do not have permission to perform this action."
 
 
+class NotFoundError(APIError):
+    """404 — no such resource, *or* one the caller may not see (XC-7).
+
+    Deliberately one class for both. XC-7 requires the two to be
+    indistinguishable, and the reliable way to keep two responses identical is
+    for there to be one response: a caller who is told "403" learns that the
+    id exists and belongs to someone else, which is exactly what a 404 for an
+    invisible row exists to withhold. The default message names nothing about
+    what was looked up for the same reason.
+    """
+
+    status_code = 404
+    code = ErrorCode.NOT_FOUND
+    default_message = "The requested resource was not found."
+
+
+class ValidationFailedError(APIError):
+    """422 — a field is invalid, decided by code rather than by Pydantic.
+
+    Most 422s come from ``RequestValidationError`` and never touch this class.
+    This is for the ones the schema layer *cannot* decide, because the valid
+    set lives in the database: SR-3's ``?status=`` filter is checked against
+    the ``statuses`` table, not against a Literal. Raising this keeps such a
+    failure in XC-4's envelope, with ``fields`` populated, instead of inventing
+    a second shape for the same class of error.
+    """
+
+    status_code = 422
+    code = ErrorCode.VALIDATION_ERROR
+    default_message = VALIDATION_ERROR_MESSAGE
+
+
 class ConflictError(APIError):
     """409 — the request collides with existing state (AUTH-2).
 

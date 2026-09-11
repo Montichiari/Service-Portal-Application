@@ -8,9 +8,9 @@ them need lives, so the rule it enforces is written down once.
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Annotated
+from typing import Annotated, Generic, TypeVar
 
-from pydantic import PlainSerializer
+from pydantic import BaseModel, PlainSerializer
 
 
 def _as_utc_iso8601(value: datetime) -> str:
@@ -35,3 +35,34 @@ def _as_utc_iso8601(value: datetime) -> str:
 
 UTCDateTime = Annotated[datetime, PlainSerializer(_as_utc_iso8601, return_type=str)]
 """A ``datetime`` response field rendered per XC-2."""
+
+
+# --- Pagination (XC-10, XC-11) -----------------------------------------------
+
+# XC-10's documented defaults and XC-11's ceiling. One definition, imported by
+# `app/api/deps.py`'s `pagination_params` (which reads the query string and
+# applies the clamp) and by every list endpoint's tests.
+DEFAULT_PAGE = 1
+DEFAULT_PAGE_SIZE = 20
+MAX_PAGE_SIZE = 100
+
+ItemT = TypeVar("ItemT")
+
+
+class Page(BaseModel, Generic[ItemT]):
+    """XC-10's list envelope, parameterised by what it holds.
+
+    Every paginated endpoint returns ``Page[SomeOut]`` rather than a bare
+    array, so a client can tell "page 1 of many" from "all there is" without
+    inferring it from a length (design.md §1 "Pagination").
+
+    ``total`` is the count of rows the **caller** can see, not the count in the
+    table. Scoping that is the query's job (SR-1) — a `total` computed without
+    the same predicate the item query uses reports rows the caller will never
+    be shown, and pages that look short for no visible reason.
+    """
+
+    items: list[ItemT]
+    total: int
+    page: int
+    page_size: int

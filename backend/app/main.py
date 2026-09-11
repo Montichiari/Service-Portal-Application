@@ -16,6 +16,8 @@ from sqlalchemy.orm import Session
 from app.api.errors import register_exception_handlers
 from app.api.middleware import register_middleware
 from app.api.routes.auth import router as auth_router
+from app.api.routes.service_requests import router as service_requests_router
+from app.api.routes.statuses import router as statuses_router
 from app.database import get_db
 
 # XC-1. Applied once, here, so no route path spells it out for itself
@@ -51,6 +53,8 @@ def create_app() -> FastAPI:
     app.include_router(health_router)
     # Resource routers, each carrying its own resource prefix.
     app.include_router(auth_router, prefix=API_V1_PREFIX)
+    app.include_router(statuses_router, prefix=API_V1_PREFIX)
+    app.include_router(service_requests_router, prefix=API_V1_PREFIX)
     return app
 
 

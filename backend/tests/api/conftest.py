@@ -14,7 +14,7 @@ hand-assembled test app could pass while the served app was wired differently.
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import datetime
 
 import pytest
@@ -205,6 +205,35 @@ def exploding_middleware_client(db_session: Session) -> Iterator[TestClient]:
     with TestClient(app, raise_server_exceptions=False) as test_client:
         yield test_client
     app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def client_for(api_app: FastAPI, cookie_header) -> Callable[..., TestClient]:
+    """A client already authenticated as a given user (T-SR-0).
+
+    ``auth_client`` above drives whole auth *flows* — register, then login,
+    then call — and its cookie jar is the point. Most resource tests don't want
+    the flow; they want "as this user, GET that". This mints the access token
+    directly and sends it as a plain ``Cookie`` header, which also sidesteps
+    the jar's domain-scoping rules that ``replace_cookie`` in
+    ``test_auth_endpoints.py`` exists to work around.
+
+    ``raise_server_exceptions=False`` is for the one test that must observe a
+    ``500`` as a response rather than as a re-raised exception (SR-14's
+    atomicity check). It is opt-in because everywhere else a 500 should surface
+    as a traceback, not as a quietly asserted status code.
+    """
+
+    def _client_for(user: User, *, raise_server_exceptions: bool = True) -> TestClient:
+        return TestClient(
+            api_app,
+            # https for the same reason auth_client uses it — Secure cookies.
+            base_url="https://testserver",
+            headers={**CSRF_HEADERS, **cookie_header(user)},
+            raise_server_exceptions=raise_server_exceptions,
+        )
+
+    return _client_for
 
 
 @pytest.fixture
