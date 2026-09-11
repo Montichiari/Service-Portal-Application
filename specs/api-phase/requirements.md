@@ -78,8 +78,10 @@ requiring one there would break every cross-origin write before the real
 request is even attempted. Corrected during `T-AUTH-2` — the original
 wording specified an exact header value and only exempted `GET`.
 
-**XC-10** (Ubiquitous) THE SYSTEM SHALL paginate every list endpoint with
-`?page` (default `1`) and `?page_size` (default `20`, max `100`) query
+**XC-10** (Ubiquitous) THE SYSTEM SHALL paginate every list endpoint —
+except where a more specific requirement documents a fixed-size
+unpaginated collection (`ST-2`, `GET /statuses`, which always returns
+exactly four rows) — with `?page` (default `1`) and `?page_size` (default `20`, max `100`) query
 params, returning `{ "items": [...], "total": <int>, "page": <int>,
 "page_size": <int> }`.
 
@@ -316,6 +318,19 @@ XC-4 rather than silently returning an empty list.
 shape (including `description`) for every item in the list response — not
 a reduced summary shape (design.md §0 decision 2).
 
+**SR-15** (Ubiquitous) THE SYSTEM SHALL order the list response by
+`created_at` descending, with `id` descending as a tiebreaker. **Written
+down during `T-SR-0`**, which was told to implement it and found no
+requirement here to cite — `design.md §4` specified the list's shape,
+filters and paging and never said what order the rows come back in, and
+`SR-1` through `SR-5` inherited that silence. Recorded now rather than
+left as an implementation detail because it is not one: without an
+`ORDER BY`, Postgres may return rows in any order it likes, and combined
+with `XC-10`'s offset paging that means a row can appear on two pages or
+on none. The tiebreaker is load-bearing for the same reason — `now()` is
+transaction-scoped in Postgres, so rows written by one request share an
+identical `created_at` and are _only_ separable by a second key.
+
 ### `POST /service-requests`
 
 **SR-6** (Event-driven) WHEN a create request has valid `title` (1–200
@@ -340,6 +355,25 @@ exceeds 10000 chars, THEN THE SYSTEM SHALL respond `422` with
 **SR-10** (Ubiquitous) THE SYSTEM SHALL ignore any client-supplied
 `request_type`, `requestor_id`, or `current_status_id` field in the
 request body, per XC-8.
+
+**SR-14** (Event-driven) WHEN a service request is created, THE SYSTEM
+SHALL insert exactly one `status_history` row for it (`status_id` = the
+`'open'` status, `changed_by_id` = the authenticated creator, `note` null)
+**in the same transaction as the `service_requests` insert** — neither
+write may land without the other. **Written down during `T-SR-0`**, which
+was told to implement it and found no requirement here to cite;
+`design.md §4`'s create section listed the columns the server sets and
+stopped at the parent row.
+
+Recorded as a requirement rather than a detail because a frontend
+guarantee depends on it. `SC-3` forbids synthesising history rows the
+database doesn't hold, and `design.md §5` has the status stepper
+reconstruct its filled/hollow steps by merging `GET /statuses` against
+`GET .../status-changes`. With no row for the opening transition, a
+brand-new request renders with _no_ step reached — visibly wrong, and
+unfixable on the frontend without breaking `SC-3`. The atomicity half is
+the same reasoning as `SC-5`: a request whose history denies it was ever
+opened is a state the system should have no way to reach.
 
 ### `GET /service-requests/{id}`
 

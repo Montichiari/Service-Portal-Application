@@ -270,16 +270,6 @@ before starting the next task.
 
 ## Testing
 
-**Run it with `npm run test:e2e`** (from `frontend/`). That starts Vite if
-it isn't already up (`reuseExistingServer`, so it's safe alongside a dev
-server you already have open) and checks the backend is reachable first,
-failing with a plain message rather than a timeout if it isn't. The backend
-and its Postgres are **not** started for you — bring those up yourself. Set
-`E2E_BASE_URL` / `E2E_API_URL` to point elsewhere.
-
-Specs live in `src/e2e/`, typechecked by `tsconfig.e2e.json` (Node types)
-and excluded from `tsconfig.app.json` so the app build never sees them.
-
 Playwright (`e2e/`, set up in `T-DEBT-3`), run against the real running
 stack — not mocks. This is deliberate, not a stopgap: `httpOnly` cookies
 are invisible to JavaScript by design, so a mocked client cannot
@@ -294,9 +284,33 @@ that's the actual guarantee.
 
 Apply `backend/CLAUDE.md`'s rule here too: **a test never observed to fail
 is not verified, only written.** Remove the thing under test, confirm the
-test goes red, restore it. This caught real holes twice on the backend
-(`T-AUTH-1`'s tamper test, `T-AUTH-3`'s self-referential expiry
-assertion); the frontend gets no exemption.
+test goes red, restore it.
+
+This has now caught a real defect three times, in three different
+disguises — a tamper test that corrupted encoding rather than meaning
+(`T-AUTH-1`), an assertion that computed its expectation from the constant
+it was testing (`T-AUTH-3`), and a route handler that read a shared
+counter back after an `await`, so the delay it existed to impose never
+applied (`T-DEBT-3`). The pattern is always the same: **the test passes,
+and keeps passing, without the thing it names ever being true.** Nothing
+about reading the test reveals this — only removing the subject and
+watching for red does. Treat the rule as load-bearing, not ceremonial;
+this is especially true for any test involving timing, concurrency, or
+shared mutable state in a route handler, where the failure mode is
+invisible by construction.
+
+Run with `npm run test:e2e`. Specs live in `src/e2e/`, with
+`tsconfig.e2e.json` for Node types (and `src/e2e` excluded from
+`tsconfig.app.json`, or the app build typechecks Node code). Runs
+serially (`workers: 1`) — one real backend and database, and readable
+failures beat a few saved seconds.
+
+To exercise `api.ts` directly (no page fires two simultaneous calls),
+import it by its dev-server URL `/src/lib/api.ts` — the same URL the app
+imports, so it's the app's own client instance rather than a second copy.
+Hold that URL in a variable or TS tries to resolve it as a module path.
+To simulate an expired session without waiting an hour, drop the
+`access_token` cookie from the browser context and keep `refresh_token`.
 
 Tests seed their own data — register a fresh user per run rather than
 depending on a hand-maintained account, which rots silently.

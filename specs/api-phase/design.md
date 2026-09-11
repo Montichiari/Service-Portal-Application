@@ -232,9 +232,20 @@ deliberate contract decision, not FastAPI's default behavior.
 
 Checked once, centrally (a FastAPI dependency), not re-implemented per
 route. Every protected route declares the minimum role it needs; the
-dependency reads `role` off the validated JWT claim, never off the request
-body — consistent with the locked decision that role is never accepted from
-the client.
+dependency reads `role` off the user's **current database row**, never off
+the request body — consistent with the locked decision that role is never
+accepted from the client. **Corrected during `T-SR-0`**: this paragraph
+still said the check reads `role` off the validated JWT claim, which the
+JWT-claims section above and `XC-13` both reversed during `T-AUTH-2`. The
+claim is a cheap pre-filter, not the final word; a paragraph saying
+otherwise is the one a future reader would find first when adding a gated
+route.
+
+Role *gating* (`require_role`, `XC-6`) and role-based *scoping* (`SR-1` /
+`SR-2`, `CM-2` / `CM-3`) are different questions asked of the same
+hierarchy: the first refuses a caller, the second shows them less. Both
+resolve through the one ranking in `app/api/deps.py`, so a role added above
+`admin` can't gate correctly and scope wrongly.
 
 ---
 
@@ -439,6 +450,18 @@ query, not filtered client-side after fetch.
 Query params: `?page=1&page_size=20&status=in_progress&priority=high`
 (`status`/`priority` filters optional).
 
+`status` is validated against the `statuses` **table**, not against a list
+of names in code — the rows are seed data a migration owns, and a second
+copy in the API would be free to disagree with it. An unrecognised name is
+a `422` with `fields.status`, never an empty `200` (`SR-3`): "no requests
+match" and "there is no such status" are different facts, and only one of
+them means the caller should change their request.
+
+Ordered `created_at` descending, `id` descending as a tiebreaker
+(`SR-15` — **added during `T-SR-0`**, which needed an order and found none
+specified here; see that requirement for why the tiebreaker is not
+decoration).
+
 Response `200`: paginated envelope of `ServiceRequest`.
 
 ### `POST /service-requests`
@@ -467,7 +490,17 @@ Request:
 - `requestor_id`: **not accepted** — always the authenticated user's ID,
   never client-supplied
 - `current_status_id`: **not accepted** — server sets it to `'open'`'s ID on
-  insert (per the locked DB decision that there's no DB-level default)
+  insert (per the locked DB decision that there's no DB-level default). If
+  the `'open'` row is missing, that is an unseeded database — a server
+  misconfiguration, answered with a `500` and a clear server-side log, never
+  a `NULL` or a bare `IntegrityError`.
+
+The insert also writes the request's first `status_history` row, in the same
+transaction (`SR-14` — **added during `T-SR-0`**; this section previously
+described only the parent row). §5's stepper is reconstructed by merging
+`GET /statuses` against `GET .../status-changes`, and `SC-3` forbids the
+frontend inventing the rows it doesn't find — so without this, a
+just-created request would render with no step reached at all.
 
 Response `201`: the created `ServiceRequest`.
 

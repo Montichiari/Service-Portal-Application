@@ -73,7 +73,8 @@ No new migration is expected anywhere in the API phase — every model the
 API layer needs already exists from the ORM phase (the one candidate
 addition, a `ticket_number` column, was decided against — see
 `specs/api-phase/design.md §0`). If a task seems to need a schema change,
-stop and flag it rather than assuming one is in scope.
+stop and flag it rather than assuming one is in scope. Confirmed through
+`T-SR-0`: no model changed and no migration was needed.
 
 ## API-phase conventions
 
@@ -94,6 +95,15 @@ Pydantic request/response schemas live in `app/api/schemas/`, one file per
 resource, matching the router split — not inline in the route files, and
 not reusing SQLAlchemy models directly as response models (a `User` ORM
 model has `password_hash`; a response schema must not).
+
+Two schema modules are shared rather than resource-owned, because more
+than one router needs them: `app/api/schemas/user.py`'s `UserSummary`
+(embedded as `requestor`, `assignee`, `author`, `changed_by`) and
+`app/api/schemas/status.py`'s `StatusOut` (embedded on every
+`ServiceRequest` and every `StatusChange`). Import them; never redefine
+either inside a resource's own schema file. The paginated `Page[T]`
+envelope from `XC-10` lives in `app/api/schemas/common.py` as a generic
+model — one envelope, not one per resource.
 
 ### Error envelope
 
@@ -165,6 +175,15 @@ token's signature/expiry check still happens first as a cheap pre-filter;
 the DB row is the final word on `role` and on whether the user is still
 active or exists at all.
 
+**Every new protected route needs its own `401`-when-unauthenticated
+test**, even though `XC-5` was proven generically in `T-AUTH-2`. A route
+declared without its auth dependency still passes every test that uses an
+authenticated client, and it will only break by side effect if the
+handler happens to need the user object for something else — which is
+true of the scoped service-request routes and _not_ true of routes where
+the user is used only for a visibility check. Assert the gate directly
+rather than relying on it failing indirectly.
+
 ### Cookies and JWT
 
 Cookie-setting and JWT encode/decode helpers live in `app/core/security.py`
@@ -178,11 +197,11 @@ needs matching attributes to actually clear a cookie, and that's the same
 concern as setting one.
 
 **Boundary with `app/config.py`**: genuinely environment-specific values
-(`JWT_SECRET_KEY`, `JWT_ALGORITHM`) stay in `config.py`/`.env`. Everything
-that's a project-wide constant regardless of environment (lifetimes,
-cookie attributes, `MAX_PASSWORD_BYTES`) lives in `security.py` instead —
-`config.py` is for "differs per environment," not "differs per developer's
-preference for where to put a number."
+(`JWT_SECRET_KEY`, `JWT_ALGORITHM`, `FRONTEND_ORIGIN`) stay in
+`config.py`/`.env`. Everything that's a project-wide constant regardless
+of environment (lifetimes, cookie attributes, `MAX_PASSWORD_BYTES`) lives
+in `security.py` instead — `config.py` is for "differs per environment,"
+not "differs per developer's preference for where to put a number."
 
 Password hashing uses `bcrypt` directly, not `passlib[bcrypt]` — passlib
 1.7.4 is unmaintained and its backend probe breaks against bcrypt ≥4.1
@@ -261,6 +280,47 @@ requires it as an optional extra). Note that it rejects `.test` as a
 reserved TLD, so API tests use `@example.com` addresses rather than the
 DB fixtures' `@example.test`.
 
+### List endpoints
+
+Every list endpoint follows the same four rules, established in `T-SR-0`
+and reused by Comments (`CM-1`) and status changes (`SC-1`):
+
+1. **Visibility scoping goes in the `WHERE` clause**, of both the item
+   query and the `COUNT` query — never a post-fetch filter in Python. A
+   post-fetch filter leaks rows into memory, makes `total` count rows the
+   caller can't see, and returns pages shorter than `page_size`.
+2. **The `COUNT` query carries every predicate the item query does** —
+   scope _and_ filters. A count that applies scoping but not filtering
+   passes every item-level assertion and breaks only `total`.
+3. **Eager-load every embedded relationship.** `status`, `requestor`,
+   `assignee`, `author`, `changed_by` are all many-to-one, so
+   `joinedload` is correct and safe alongside `LIMIT` (a to-one join
+   can't multiply parent rows — that hazard belongs to to-many
+   relationships, where `selectinload` is the right tool). Lazy loading
+   here is an N+1: `1 + 3n` queries for a page of `n`.
+4. **Ordering must be total.** `ORDER BY` on a non-unique column alone
+   gives Postgres no stability guarantee between calls, so a paging user
+   can see one row twice and miss another. Always add a unique tiebreaker
+   (`created_at DESC, id DESC` — `SR-15`).
+
+Where a filter's valid value set is **static in code** (`priority`), let
+the validation layer enforce it with a `Literal` query param and get the
+`422` for free. Where the valid set **lives in the database**
+(`status`, a lookup table), resolve the supplied value against that table
+at request time and raise the `422` yourself — hardcoding an enum for it
+would silently drift from the seeded rows.
+
+`XC-11` **clamps** an oversized `page_size` rather than rejecting it, so
+`Query(le=100)` is wrong here: it produces a `422`. Use `ge=1` and clamp
+in the handler. `page` uses `ge=1`, and a `422` for `page=0` is intended.
+
+`XC-7` requires "malformed id", "no such row", and "exists but not
+yours" to be externally indistinguishable. Typing a path param as `UUID`
+breaks this — FastAPI raises a validation error before the handler runs
+and returns `422` instead of `SR-13`'s `404`. Accept the param as `str`,
+parse it in the handler, and treat a parse failure exactly like a miss.
+Assert the three responses are byte-identical, not merely same-status.
+
 ## Testing
 
 Contract tests (R10, ORM phase) run against a real Postgres test database —
@@ -280,7 +340,69 @@ comment out the constraint, confirm the test goes red, then restore it. A
 constraint test that has never been observed to fail is not verified,
 only written.
 
-**API-phase additions**:
+**This rule has now caught a real defect four times across this project**,
+in four different disguises: a tamper test that corrupted a token's
+encoding rather than its meaning, so it failed before reaching the check
+it named (`T-AUTH-1`); a cookie-expiry assertion that computed its
+expected value from the constant under test, so changing that constant
+kept it green (`T-AUTH-3`); a Playwright route handler that read a shared
+counter back after an `await`, so the delay it existed to impose never
+applied (`T-DEBT-3`); and an N+1 test that passed with every `joinedload`
+removed, because its fixture shared a session with the code under test
+(`T-SR-0`). The pattern underneath is always the same — **the test
+passes, and would keep passing, without the thing it names ever being
+true** — and reading the test never reveals it. Only removing the subject
+and watching for red does. Apply this hardest to tests involving timing,
+concurrency, or shared mutable state, where the failure is invisible by
+construction.
+
+### Session isolation in tests
+
+**A test that shares a session with the code under test measures the
+fixture, not the query.** SQLAlchemy's identity map hands back
+already-loaded objects without emitting SQL, so a lazy load inside a
+handler stays completely invisible when the test seeded its rows through
+that same session. Production cannot reproduce this — `get_db` yields a
+fresh session per request — which means the one condition keeping the
+test green is the one condition the running app can never reach. Call
+`expunge_all()` before any measured call, and read assertions back
+through a different session than the one that wrote. Found in `T-SR-0`,
+where the N+1 assertion held with all three `joinedload` calls removed.
+
+This generalises past query counting: any assertion about _persistence_
+has the same hazard. Reading a row back through the writing session may
+be observing a pending in-memory object rather than a committed row.
+
+**Homogeneous fixture data hides relationship growth independently of the
+session.** If every seeded row points at the same requestor and the same
+status, an N+1 self-limits at two queries no matter how many rows exist —
+the second row's lazy load finds its target already in the identity map.
+Fixture rows for any relationship-count test must vary across _every_
+relationship being loaded: distinct requestors, distinct assignees,
+statuses spread across all four seeded rows.
+
+**Assert the statement count is constant, not small.** A threshold
+assertion (`< 10 queries`) passes forever as long as the fixture stays
+small, which is the same failure family as everything above. Measure the
+same endpoint at two different row counts (3 and 15) and assert the
+counts are _equal_. Count via a `before_cursor_execute` event listener.
+
+### Mutation passes
+
+A mutation pass edits the working tree, so it needs a mechanical
+end-of-pass check, not a remembered one. `T-SR-0`'s harness run was
+killed mid-pass by a shell pipeline truncation and left a mutation
+applied; the full suite happened to catch it, which is a good suite
+rather than a control. Two rules:
+
+- Apply mutations as revertible patches and assert a clean tree
+  (`git diff --exit-code`) once the pass finishes. A defect committed
+  because a harness run died mid-pass is far worse than any defect the
+  pass was looking for.
+- Never pipe a long harness run through a truncating command; write the
+  output to a file and read the file.
+
+### API-phase additions
 
 - `db_session` was promoted to a top-level `backend/tests/conftest.py`
   during `T-AUTH-2` (needed early for that task's own tests, not deferred
@@ -304,10 +426,13 @@ only written.
   applicable) — not just the HTTP status code. A `422` with the wrong
   `fields` key is still a contract violation even though the status code
   is right.
+- A visibility test must be positively non-empty on both sides. "User A
+  sees only their own" passes vacuously if both fixtures own zero rows —
+  assert on specific ids and a non-zero count for each role.
 - `SC-5`/`SC-6`'s atomicity requirement needs the same "verify it can
   fail" discipline as a constraint test — force the transaction to fail
   partway and assert _neither_ write landed, not just that the endpoint
-  returned an error.
+  returned an error. Same applies to `SR-14`'s create-plus-history pair.
 - `requirements.txt` includes `httpx2`, not `httpx` — this Starlette
   version's `TestClient` requires that specific package. Don't "correct"
   it back to `httpx` if you see it and don't recognize the name.
@@ -345,5 +470,14 @@ out of scope in the current phase.
 - No email verification at registration
 - No `PATCH /service-requests/{id}` — no frontend surface needs it yet
   (`specs/api-phase/design.md §7`)
+- No assignment path of any kind. `assignee` is always `null` in this
+  phase; there is no endpoint that sets it and none is to be added
+  speculatively.
+- No `?requestor_id=me` (or equivalent) on `GET /service-requests`.
+  `SR-2` gives admins everything by design. The gap is real — an admin
+  cannot scope the list to their own requests — but no designed frontend
+  surface consumes it yet, so it arrives with its consumer, not before.
+- No sort control and no free-text search on `GET /service-requests`.
+  Order is fixed by `SR-15`; filters are `status` and `priority` only.
 - No `request_type` values beyond `'general'`
 - No admin-promotion endpoint — role changes remain a direct DB operation

@@ -29,7 +29,8 @@
   its own justification, rather than defaulting to it now.
 - No new Alembic migration is needed anywhere in this phase — the
   ticket-number column was explicitly declined (`design.md §0`), and every
-  other model needed already exists from the ORM phase.
+  other model needed already exists from the ORM phase. Confirmed through
+  `T-SR-0`.
 
 ---
 
@@ -628,16 +629,47 @@ out MSW. Playwright against the running stack tests the thing itself.
 
 **Acceptance criteria**:
 
-- [ ] The suite runs green against the running stack from a single
+- [x] The suite runs green against the running stack from a single
       documented command
-- [ ] The refresh-concurrency test fails if the `sessionGeneration` guard
+- [x] The refresh-concurrency test fails if the `sessionGeneration` guard
       in `api.ts` is removed — verify by actually removing it, confirming
       red, and restoring. Per `backend/CLAUDE.md`'s rule, a test never
       observed to fail is not verified, only written; that applies here
       too
-- [ ] The `AUTH-7` test fails if the login page is changed to
+- [x] The `AUTH-7` test fails if the login page is changed to
       distinguish wrong-password from unknown-email
-- [ ] No test depends on a hand-maintained database row
+- [x] No test depends on a hand-maintained database row
+
+**Complete.** 5 specs, green against the real stack via `npm run test:e2e`.
+
+**The verification step caught a real defect — in the test, not the app.**
+The first version of the concurrency test passed _with the guard
+removed_. Its route handler keyed a delay on a shared mutable counter and
+read it back after an `await`, so a later request could increment it
+mid-handler; the hold never applied, both `401`s arrived together, and the
+shared in-flight promise alone sufficed to dedupe them. The test was
+passing without exercising the thing it was named after. Fixed by
+capturing the call index at handler entry, plus an
+`expect(meCalls).toBe(4)` guard so it fails loudly if the delayed call
+ever stops `401`-ing rather than silently proving nothing.
+
+**Third occurrence of the same failure family in this project** —
+`T-AUTH-1`'s tamper test corrupted encoding rather than meaning;
+`T-AUTH-3`'s expiry assertion computed its expectation from the constant
+under test; this one let a shared counter race. Different mechanisms, one
+pattern: the test passed, and would have kept passing, without the thing
+it named ever being true. All three were surfaced only by removing the
+thing under test and watching for red. That's the argument for the rule,
+not a footnote to it.
+
+Setup notes worth keeping: the concurrency spec imports `api.ts` by its
+dev-server URL (`/src/lib/api.ts`) — the same URL the app imports, so
+it's the app's own client instance, not a copy. Building a page that
+fires two simultaneous calls would have tested the scaffolding instead.
+Session expiry is simulated by dropping the `access_token` cookie while
+keeping `refresh_token` — a real expiry as far as the client can tell.
+Runs serially (`workers: 1`) on purpose: one real backend and database,
+and readable failures beat saving a few seconds.
 
 ---
 
@@ -663,24 +695,135 @@ of those are visible until both halves exist and talk to each other.
 
 ### T-SR-0 — Backend service request endpoints
 
-**Covers**: `SR-1` through `SR-13`.
+**Covers**: `SR-1` through `SR-15`, `ST-1`, `ST-2`.
 
-**Scope**: `GET /service-requests` (list, filters, ownership scoping),
-`POST /service-requests`, `GET /service-requests/{id}`. Depends on
-T-AUTH-2's dependencies (`get_current_user`) for all three.
+**Scope**: `GET /statuses`, `GET /service-requests` (list, filters,
+ownership scoping), `POST /service-requests`,
+`GET /service-requests/{id}`. Depends on T-AUTH-2's dependencies
+(`get_current_user`) for the three service-request routes; `GET
+/statuses` is public per `ST-1`.
+
+`GET /statuses` was folded in here during spec review: `ST-1`/`ST-2` were
+owned by no task at all (Group 2 covered `SR-*`, Group 3 `CM-*`, Group 4
+`SC-*`), while `T-SC-1` assumed the endpoint existed. It also belongs
+here practically — `StatusOut` is built this task anyway as the embedded
+status object on every `ServiceRequest`, and `T-SR-1`'s filter dropdown
+needs the endpoint.
 
 **Acceptance criteria**:
 
-- [ ] `SR-1`/`SR-2`: a `user`-role caller sees only their own requests; an
-      `admin`-role caller sees all
-- [ ] `SR-3`/`SR-4`: valid `status`/`priority` filters narrow correctly;
-      invalid values return `422`
-- [ ] `SR-6` through `SR-10`: create validates all three fields, ignores
-      client-supplied `request_type`/`requestor_id`/`current_status_id`,
-      and the created row's `current_status_id` actually points at the
-      `'open'` status
-- [ ] `SR-11`/`SR-12`: a non-owner non-admin `GET`ting another user's
-      request gets `404`, not `403`
+- [x] `ST-1`/`ST-2`: `GET /statuses` needs no session, returns all four
+      seeded rows ordered by `sort_order`, as a bare `{"items": [...]}`
+      and not the paginated envelope
+- [x] `SR-1`/`SR-2`: a `user`-role caller sees only their own requests; an
+      `admin`-role caller sees all — asserted on specific ids, with both
+      sides non-empty (a test where both fixtures own zero rows passes
+      vacuously)
+- [x] `SR-1` + `XC-10`: `total` reflects the scoped count, not the table
+      count
+- [x] `SR-3`/`SR-4`: valid `status`/`priority` filters narrow correctly;
+      invalid values return `422` (an unseeded status name is a `422`
+      with `fields.status`, never a silently empty `200`)
+- [x] `SR-5`: every list item carries `description`
+- [x] `SR-15`: ordering is `created_at DESC, id DESC`, stable across
+      repeated calls on rows sharing a `created_at`
+- [x] `XC-10`/`XC-11`: `page_size=250` returns a `200` reporting
+      `page_size` 100, not a `422`
+- [x] `SR-6` through `SR-9`: create validates all three fields at their
+      boundaries (at the limit and one over)
+- [x] `SR-10`/`XC-8`: a body carrying `request_type`, `requestor_id`, and
+      `current_status_id` succeeds with all three ignored — the created
+      row is the caller's, `general`, and `open`
+- [x] `SR-14`: creation inserts exactly one `status_history` row pointing
+      at `open` with `changed_by_id` = the caller; forcing that insert to
+      fail leaves no `service_requests` row behind
+- [x] `SR-11`/`SR-12`/`SR-13`: owner and admin get `200`; non-owner
+      non-admin, absent UUID, and malformed id all return `404` with
+      byte-identical bodies
+- [x] `AUTH-5`/`XC-15`: no response body on these endpoints contains
+      `password` or `password_hash`, error responses included
+- [x] N+1: statement count is _equal_ for 3 rows and 15 rows, not merely
+      below a threshold
+
+**Complete.** 192 tests total (45 new), mutation-tested — 23 deliberate
+defects, all caught (the six required, plus 17 more).
+
+**The mutation pass found a real defect — in the test, not the app**, and
+it's the most instructive one this project has produced. The N+1 test
+passed with all three `joinedload` calls removed, for two independent
+reasons, either of which alone would have made the assertion meaningless:
+
+1. The test seeded its rows through the same session the handler used, so
+   every related row was already in SQLAlchemy's identity map and a lazy
+   many-to-one load never emitted SQL. **Production cannot reproduce
+   this** — `get_db` yields a fresh session per request — so the fixture
+   was the only reason the assertion held. Fixed with `expunge_all()`
+   before each measured call.
+2. Every row shared one requestor and one status, which makes an N+1
+   self-limit at two queries regardless of row count. Fixed by giving
+   each row its own requestor and assignee, with statuses spread across
+   all four.
+
+Generalising, and now recorded in `backend/CLAUDE.md`'s Testing section:
+**an N+1 test that shares a session with the code under test measures the
+fixture, not the query** — and homogeneous fixture data hides the growth
+even when the session doesn't. Neither is visible from reading the test.
+This is the fourth instance of the project's recurring pattern, after
+`T-AUTH-1`, `T-AUTH-3`, and `T-DEBT-3`.
+
+**Process finding**: a harness run was killed by a shell pipeline
+truncation and left mutation 13 applied in the working tree. The full
+suite caught it (`test_create_ignores_client_supplied_server_fields` went
+red) and it was restored — but that's a good suite rather than a control.
+`backend/CLAUDE.md` now requires a clean-tree assertion at the end of a
+mutation pass and forbids piping a long harness run through a truncating
+command.
+
+**Spec problems found and fixed rather than worked around**:
+
+- `SR-14` and `SR-15` did not exist in `requirements.md` — written in.
+  `SR-14` is load-bearing, not a nicety: `SC-3` forbids the frontend
+  synthesising history rows, so without it `T-SC-1`'s stepper shows a
+  brand-new request with no step reached and no legitimate fix.
+- `design.md §4` was silent on list ordering, on the initial history row,
+  and on a missing `'open'` row — all three now documented.
+- `design.md §1`'s "Role enforcement" paragraph was stale, still saying
+  the dependency reads `role` off the validated JWT claim, which `XC-13`
+  reversed during `T-AUTH-2`. Corrected — it's the paragraph someone
+  adding a gated route would find first.
+- `XC-10` ("paginate every list endpoint") contradicted `ST-2`
+  (`/statuses` is deliberately unpaginated). Resolved in favour of the
+  more specific `ST-2`, and `XC-10` amended to name the exception rather
+  than leaving the contradiction resolved only in someone's head.
+
+No migration needed, no model changed.
+
+---
+
+### T-DEBT-4 — Two missing tests on the service-request routes
+
+**Do this as part of `T-CM-0`**, not as a standalone task — both tests
+are also the template `T-CM-0` and `T-SC-0` should follow, so writing
+them there costs almost nothing and immediately gets reused.
+
+Neither is likely to be broken today. Both are in the project's recurring
+failure family — a green suite that doesn't actually assert the thing it
+appears to:
+
+1. **A `401`-when-unauthenticated test on each of the three
+   `/service-requests` routes.** `XC-5` was proven in `T-AUTH-2` against a
+   throwaway route. Every `T-SR-0` test uses an authenticated client, so
+   a route declared without `get_current_user` would only break by side
+   effect — true here because the handlers need the user for scoping, and
+   _not_ true of routes where the user is used only for a visibility
+   check, which Groups 3 and 4 both have.
+2. **A `total`-respects-filters assertion.** `T-SR-0` proved `total` is
+   the _scoped_ count. If the `COUNT` query applies the scope predicate
+   but not the `status`/`priority` filter predicates, every item-level
+   assertion still passes and only a filtered-list `total` catches it —
+   one predicate over from the bug the scoping mutation did catch.
+
+---
 
 ### T-SR-1 — Frontend service request integration
 
@@ -690,6 +833,40 @@ from importing `mockRequests`/`mockRequestDetail` to calling the real API
 via `src/lib/api.ts`. Add loading and empty states — both are currently
 absent (`frontend-contract.md §8.2`, §8.4) and now matter because data is
 async and can genuinely be empty for a new user.
+
+**This task establishes the loading and empty-state pattern for the whole
+phase.** `frontend/CLAUDE.md` is explicit that it gets invented once,
+here, and reused by Groups 3 and 4 — `T-DEBT-2` deliberately rendered
+`null` while pending rather than inventing a spinner first. Don't leave a
+second pattern behind.
+
+Also in scope, from `T-SR-0`'s report:
+
+- **`STATUS_CONFIG` in `StatusPill.tsx` must be updated** to the four
+  backend values (`open`, `in_progress`, `resolved`, `closed`) with
+  `draft` dropped, per `frontend/CLAUDE.md`'s Component conventions.
+  Status names arrive from the API as raw identifiers (`in_progress`) —
+  the display-label mapping is a frontend concern by `design.md §0`
+  decision 4, and `STATUS_CONFIG` is where it already lives. Don't create
+  a second mapping elsewhere.
+- **Filter values must come from `GET /statuses`**, not a hardcoded array
+  of four strings. `SR-3` returns a `422` for an unrecognised name, so a
+  hardcoded list that drifts from the seed produces a broken filter
+  rather than an empty result. `GET /statuses` requires no session
+  (`ST-1`), so it can load before the auth bootstrap resolves.
+- **`assignee` is always `null` this phase** — there is no assignment
+  path and `PATCH` is deferred (`design.md §7`). Render "Unassigned"
+  everywhere rather than hiding the field or inventing a placeholder
+  name. (The prototype's other hardcoded assignment string,
+  `STATUS_HISTORY_LABELS`' `'Assigned to IT Service Desk'`, lives in the
+  status timeline and is `T-SC-1`'s to retire — don't half-fix it here.)
+- **Decide the admin dashboard copy.** `SR-2` gives an admin every
+  request, and the nav has exactly one dashboard item, so an admin
+  loading a page headed "My Requests" sees everyone's. That's a lie in
+  the UI, not a backend gap: fix it with role-dependent heading and
+  empty-state text on the one page. Do **not** add a "My requests / All
+  requests" toggle or a `?requestor_id=me` param — no designed surface
+  consumes them, and they'd arrive without a consumer.
 
 **Acceptance criteria**:
 
@@ -704,6 +881,16 @@ async and can genuinely be empty for a new user.
 - [ ] Detail page 404s visibly (not silently rendering wrong data) for an
       id the current user can't access — closes `frontend-contract.md
     §3.7`'s "always the same object regardless of `:id`" gap
+- [ ] `STATUS_CONFIG` carries exactly the four backend statuses; `draft`
+      appears nowhere in the frontend
+- [ ] The status filter's options are fetched from `GET /statuses`, not
+      hardcoded
+- [ ] An admin and a regular user both see accurate heading and
+      empty-state copy for what the list actually contains
+- [ ] Checked at ~1280px and ~375px, per `frontend/CLAUDE.md`
+- [ ] Playwright specs added for the dashboard's loaded and empty states,
+      and for the detail-page `404` — verified by removing the behaviour
+      and watching each go red
 
 **Group 2 checkpoint** before Group 3.
 
@@ -713,7 +900,7 @@ async and can genuinely be empty for a new user.
 
 ### T-CM-0 — Backend comment endpoints
 
-**Covers**: `CM-1` through `CM-9`.
+**Covers**: `CM-1` through `CM-9`. Also completes `T-DEBT-4`.
 
 **Acceptance criteria**:
 
@@ -723,6 +910,10 @@ async and can genuinely be empty for a new user.
 - [ ] `CM-7`: a `user`-role caller posting `is_internal: true` gets `403`
       and no row is created
 - [ ] `CM-8`: an `admin`-role caller can post with `is_internal: true`
+- [ ] `T-DEBT-4`: a `401`-when-unauthenticated test exists for each of
+      the three `/service-requests` routes and for both comment routes
+- [ ] `T-DEBT-4`: `total` on a _filtered_ list reflects the filters, not
+      just the visibility scope
 
 ### T-CM-1 — Frontend comment integration
 
@@ -731,7 +922,8 @@ instead of the embedded `comments` array. This also means building a
 comment composer UI that **doesn't exist yet** — `frontend-contract.md
 §6.5` documents its absence as deliberate for the prototype phase; that
 phase is over. Include an `is_internal` checkbox, rendered only for
-admin-role users (`CM-7`/`CM-8`).
+admin-role users (`CM-7`/`CM-8`). Reuse `T-SR-1`'s loading and
+empty-state pattern; do not invent a second one.
 
 **Acceptance criteria**:
 
@@ -756,13 +948,17 @@ admin-role users (`CM-7`/`CM-8`).
 
 - [ ] `SC-3`: response contains only real `status_history` rows — write a
       test asserting the count equals actual transitions made, never a
-      fixed number
+      fixed number. Note `SR-14` means a freshly created request already
+      has exactly one row (`open`), so the baseline is one, not zero
 - [ ] `SC-4`: a `user`-role caller `POST`ing a status change gets `403`
 - [ ] `SC-5`/`SC-6`: the history-insert and `current_status_id`-update
       happen atomically — test by forcing a failure mid-transaction (e.g.
       an invalid `status_id` after a valid one in sequence) and asserting
       neither write landed, matching `backend/CLAUDE.md`'s testing
       convention of proving a test can actually fail
+- [ ] `SR-14`'s invariant still holds after a transition:
+      `current_status_id` equals the status of the most recent
+      `status_history` row, always
 
 ### T-SC-1 — Frontend status history integration
 
@@ -774,6 +970,20 @@ the prototype's fixed five-row template with `null` placeholders entirely
 (`frontend-contract.md §7.2`). Add an admin-only status-change control
 (select a status, optional note, submit) — doesn't exist in the prototype.
 
+`SR-14` means the merge has a real first step to work with: a brand-new
+request already has one genuine `open` transition, so no step needs
+synthesising and no "the first step is always filled" special case
+belongs anywhere in this code.
+
+Also retire `STATUS_HISTORY_LABELS`' hardcoded
+`'Assigned to IT Service Desk'` (`frontend-contract.md §7.4`/§3.5). The
+whole five-state `StatusHistoryState` vocabulary
+(`submitted`/`assigned`/...) goes with it — the backend has four
+statuses and no `assigned` state, and there is no assignment data behind
+that label at all (`assignee` is always `null` this phase). Deleting it
+also resolves `frontend-contract.md §9-#8`, the two-non-matching-status-
+enums inconsistency, since only `Status` survives.
+
 **Acceptance criteria**:
 
 - [ ] A request with two real transitions shows two filled steps and the
@@ -781,6 +991,8 @@ the prototype's fixed five-row template with `null` placeholders entirely
 - [ ] A regular user sees no status-change control in the DOM
 - [ ] Posting a status change (as admin) updates the stepper without a
       full reload
+- [ ] `StatusHistoryState` and `STATUS_HISTORY_LABELS` no longer exist
+      anywhere in the frontend
 
 **Group 4 checkpoint. All four vertical slices integrated — capstone API
 layer complete.**
