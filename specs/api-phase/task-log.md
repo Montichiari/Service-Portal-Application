@@ -352,6 +352,70 @@ gap — but this task's scope named "role-dependent heading and empty-state
 text" specifically, and a column is a design decision rather than a copy
 fix. **Resolved at the Group 2 checkpoint via `T-DEBT-5`: column added.**
 
+### T-DEBT-5
+
+Both gaps `T-SR-1` left open at the Group 2 checkpoint, closed. All three
+acceptance criteria pass, verified live against the running stack at both
+widths.
+
+**The title cap.** `submitRequestSchema`'s `title` went 100 → 200, matching
+`SR-7`, with the message updated to agree. The docstring had carried a
+paragraph arguing both maxima were deliberately stricter than the API's;
+that was only ever true of `description` (`design.md §4` names its 10000 an
+abuse backstop and keeps the 1000-character UX cap on purpose, and is
+silent on `title`). The paragraph now says that, rather than grouping the
+two under one rationale that fitted only one of them. Confirmed through the
+real form: a 150-character title submits and lands on the dashboard, a
+201-character one is refused with `fields.title` populated and the input
+marked invalid. There is no `maxlength` attribute on the input, so the
+schema is the only cap — worth knowing, because a `maxlength` would have
+silently truncated at 100 and made the old limit look like a passing test.
+
+**The requestor column.** Rendered only when `user.role === 'admin'`, from
+each item's embedded `requestor` — no new fetch, no backend change, as
+scoped. It is **absent from the DOM** for a regular user rather than
+CSS-hidden, the same rule `CM-7`'s internal-comment checkbox will follow.
+Verified as a promoted admin (direct `UPDATE` again — no promotion
+endpoint, by design) against a list holding two different requestors, so
+the column is provably per-row data and not the viewer's own name repeated:
+a single-requestor fixture would have passed while rendering the wrong
+field.
+
+**One extraction, not deferred.** `fullName` lived inside
+`RequestDetailsPage`; the new column made the dashboard its second caller.
+Duplicating it is precisely the failure `frontend/CLAUDE.md` records
+against the three `Field` copies, so it moved to `src/lib/names.ts` — the
+one place a `UserSummary` becomes a name, the same shape as `datetime.ts`.
+It exports `fullName` alone. A `fullNameOr(user, fallback)` was written and
+then removed before landing: `RequestDetailsPage` handles the `null`
+assignee inline with its own comment, so the helper would have shipped with
+no caller, and what to show in place of a missing name is the page's call,
+not the module's.
+
+**A layout observation, not a defect in this change.** The first live check
+used a 150-character title made of one unbroken 140-character token, which
+cannot wrap — it blew the Title column out and pushed the other four
+columns out of view. Re-checked with a realistic 150-character title (the
+same length, with spaces) all five columns fit at ~1280px with the title
+wrapping over two lines. The table wrapper is `overflow-x: auto` and the
+page body does not overflow horizontally at either width, so even the
+pathological case scrolls inside its own container rather than breaking the
+page. This behaviour predates the new column and is a property of an
+unbreakable string, not of the column count — recorded because the first
+screenshot looks alarming and someone re-running this check deserves to
+know it was chased down rather than missed.
+
+At ~375px the requestor column collapses with priority and date via the
+existing `hidden md:table-cell`, leaving Title and Status for both roles —
+no new mobile treatment was needed, and none was invented.
+
+The existing 12-spec Playwright suite still passes. No new specs were
+added: this task's acceptance criteria name live checks at two widths, not
+regression coverage, and unlike `T-SR-1` no criterion here describes a
+behaviour a future edit could silently undo without a visible column
+disappearing. If the requestor column ever gains a role-dependent test, it
+belongs alongside `CM-7`'s DOM-absence spec in Group 3.
+
 ---
 
 _(Groups 3 and 4 have not run yet — no entries here until they do.)_

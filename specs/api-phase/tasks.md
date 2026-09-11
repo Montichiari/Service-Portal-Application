@@ -788,13 +788,16 @@ checkpoint.
 
 **Acceptance criteria**:
 
-- [ ] A 150-character title is accepted (previously rejected at 100); a
+- [x] A 150-character title is accepted (previously rejected at 100); a
       201-character title is still rejected with `fields.title` populated
-- [ ] `RequestsDashboardPage` shows a Requestor column when the viewer is
-      `admin`; a regular user's view is unchanged
-- [ ] Checked at ~1280px and ~375px
+- [x] `RequestsDashboardPage` shows a Requestor column when the viewer is
+      `admin`; a regular user's view is unchanged — absent from the DOM,
+      not CSS-hidden
+- [x] Checked at ~1280px and ~375px
 
 Report, then stop — `T-CM-0` is next.
+
+**Complete.** See `task-log.md#t-debt-5`.
 
 ---
 
