@@ -226,6 +226,43 @@ def test_unknown_status_is_422_not_an_empty_list(
     assert error["fields"]["status"]
 
 
+def test_total_respects_filters_as_well_as_scope(
+    make_user, make_service_request, client_for, status_by_name
+):
+    """T-DEBT-4 — `total` carries *every* predicate the page does.
+
+    `test_total_counts_only_visible_rows` proves the count is scoped. This is
+    the neighbouring bug, one predicate over: a `COUNT` that applies the
+    ownership scope but not the `status` / `priority` filters. Every item-level
+    assertion in this file still passes when that happens — the page holds
+    exactly the right rows — and only `total` is wrong, so the paginator offers
+    pages that come back empty.
+
+    Scope and filter are exercised together rather than separately because the
+    bug lives in the gap between them: rows exist here that the filter excludes
+    *and* rows that the scope excludes, so a count missing either predicate
+    reports a different, wrong number.
+    """
+    owner = make_user()
+    other = make_user()
+    resolved = status_by_name("resolved")
+
+    make_service_request(owner, current_status_id=resolved.id, priority="high")
+    make_service_request(owner, priority="high")  # open, so the filter drops it
+    make_service_request(owner, current_status_id=resolved.id, priority="low")
+    for _ in range(3):
+        make_service_request(other, current_status_id=resolved.id, priority="high")
+
+    body = (
+        client_for(owner)
+        .get(LIST, params={"status": "resolved", "priority": "high"})
+        .json()
+    )
+
+    assert len(body["items"]) == 1
+    assert body["total"] == 1, "total ignored the status/priority filters"
+
+
 @pytest.mark.parametrize("priority", ["low", "medium", "high"])
 def test_priority_filter_narrows_to_that_priority(
     priority, make_user, make_service_request, client_for

@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from app.api.errors import register_exception_handlers
 from app.api.middleware import register_middleware
 from app.api.routes.auth import router as auth_router
+from app.api.routes.comments import router as comments_router
 from app.api.routes.service_requests import router as service_requests_router
 from app.api.routes.statuses import router as statuses_router
 from app.database import get_db
@@ -55,6 +56,11 @@ def create_app() -> FastAPI:
     app.include_router(auth_router, prefix=API_V1_PREFIX)
     app.include_router(statuses_router, prefix=API_V1_PREFIX)
     app.include_router(service_requests_router, prefix=API_V1_PREFIX)
+    # Mounted after its parent resource. Its paths nest under
+    # `/service-requests/{request_id}`, and `/service-requests/{request_id}`
+    # itself is a real route — registering the sub-resource first would put a
+    # more general pattern ahead of a more specific one in the route table.
+    app.include_router(comments_router, prefix=API_V1_PREFIX)
     return app
 
 

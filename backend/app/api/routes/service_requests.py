@@ -10,19 +10,21 @@ see — and would leak existence through the difference between 404 and 403.
 
 from __future__ import annotations
 
-import uuid
-
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy import Select, func, select
 from sqlalchemy.orm import Session, joinedload
 
-from app.api.deps import Pagination, get_current_user, is_admin, pagination_params
-from app.api.errors import NotFoundError, ValidationFailedError
+from app.api.deps import Pagination, get_current_user, pagination_params
+from app.api.errors import ValidationFailedError
 from app.api.schemas.common import Page
 from app.api.schemas.service_request import (
     Priority,
     ServiceRequestCreate,
     ServiceRequestOut,
+)
+from app.api.visibility import (
+    load_visible_service_request,
+    service_request_conditions,
 )
 from app.database import get_db
 from app.db.models import ServiceRequest, Status, StatusHistory, User
@@ -44,6 +46,16 @@ DEFAULT_REQUEST_TYPE = "general"
 
 # --- helpers -----------------------------------------------------------------
 
+# The three rows every `ServiceRequestOut` embeds, as loader options. Shared
+# with `load_visible_service_request`, which takes the same options: this route
+# serialises the row it fetches and so pays for the joins, while the
+# sub-resource routes use that loader as a pure visibility gate and pass none.
+_DETAIL_OPTIONS = (
+    joinedload(ServiceRequest.current_status),
+    joinedload(ServiceRequest.requestor),
+    joinedload(ServiceRequest.assignee),
+)
+
 
 def _with_relations(stmt: Select) -> Select:
     """Eager-load the three rows every ``ServiceRequestOut`` embeds.
@@ -55,24 +67,7 @@ def _with_relations(stmt: Select) -> Select:
     alongside ``LIMIT`` — the caveat about ``joinedload`` and ``LIMIT`` applies
     to collections, which these are not.
     """
-    return stmt.options(
-        joinedload(ServiceRequest.current_status),
-        joinedload(ServiceRequest.requestor),
-        joinedload(ServiceRequest.assignee),
-    )
-
-
-def _visibility_conditions(user: User) -> list:
-    """SR-1 / SR-2 as ``WHERE`` clauses: owners see their own, admins see all.
-
-    Returned as conditions rather than applied to a statement so the *same*
-    list goes into both the item query and the count. Two call sites, one
-    predicate — a `total` that disagreed with the page would be a slow-burning
-    bug, visible only as a paginator that promises rows it never delivers.
-    """
-    if is_admin(user):
-        return []
-    return [ServiceRequest.requestor_id == user.id]
+    return stmt.options(*_DETAIL_OPTIONS)
 
 
 def _resolve_status_filter(db: Session, name: str) -> Status:
@@ -102,45 +97,6 @@ def _resolve_status_filter(db: Session, name: str) -> Status:
     return row
 
 
-def _parse_uuid(raw: str) -> uuid.UUID | None:
-    """Parse a path id, or ``None`` — never an exception the caller can see.
-
-    SR-13 makes a malformed id a 404, identical to a missing row. Typing the
-    path parameter as ``uuid.UUID`` would hand that case to FastAPI, which
-    answers 422 before the handler runs — a different status *and* a body
-    naming the failure, which is precisely the distinction XC-7 forbids. So
-    the parameter arrives as ``str`` and this turns a parse failure into the
-    same "no such row" the lookup below produces.
-    """
-    try:
-        return uuid.UUID(raw)
-    except ValueError:
-        return None
-
-
-def _load_visible(db: Session, raw_id: str, user: User) -> ServiceRequest:
-    """Fetch one request the caller may see, or raise 404 (SR-11 to SR-13).
-
-    All three of "not a valid id", "no such row" and "exists but is someone
-    else's" leave through this one ``raise``, so they cannot answer differently
-    — not in status, not in message, not in whether ``fields`` is present.
-    Ownership is in the ``WHERE`` clause rather than compared after the fetch:
-    same answer either way today, but a post-fetch check is one early return
-    away from becoming a 403 that confirms the row exists.
-    """
-    request_id = _parse_uuid(raw_id)
-    if request_id is None:
-        raise NotFoundError()
-
-    stmt = _with_relations(select(ServiceRequest)).where(
-        ServiceRequest.id == request_id, *_visibility_conditions(user)
-    )
-    row = db.execute(stmt).scalar_one_or_none()
-    if row is None:
-        raise NotFoundError()
-    return row
-
-
 # --- endpoints ---------------------------------------------------------------
 
 
@@ -159,7 +115,7 @@ def list_service_requests(
     db: Session = Depends(get_db),
 ) -> Page[ServiceRequestOut]:
     """A page of requests the caller may see (SR-1 to SR-5, SR-15, XC-10, XC-11)."""
-    conditions = _visibility_conditions(user)
+    conditions = service_request_conditions(user)
 
     if status_name is not None:
         # Filtering on `current_status_id` rather than joining `statuses` and
@@ -289,6 +245,8 @@ def get_service_request(
 ) -> ServiceRequestOut:
     """One request, if the caller may see it (SR-11 to SR-13).
 
-    ``request_id`` is typed ``str`` deliberately — see ``_parse_uuid``.
+    ``request_id`` is typed ``str`` deliberately — see ``parse_uuid_or_none``.
     """
-    return ServiceRequestOut.model_validate(_load_visible(db, request_id, user))
+    return ServiceRequestOut.model_validate(
+        load_visible_service_request(db, request_id, user, options=_DETAIL_OPTIONS)
+    )
