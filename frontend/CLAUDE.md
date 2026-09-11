@@ -34,6 +34,10 @@ API phase (current):
   referenced by `tasks.md` acceptance criteria
 - `specs/api-phase/tasks.md` — the ordered task groups (Auth, ServiceRequest,
   Comments, StatusHistory) and their acceptance criteria
+- `specs/api-phase/task-log.md` — the retrospective for each completed
+  task (what actually happened, spec corrections made). `tasks.md` points
+  here rather than repeating it; read this when you want the reasoning
+  behind a past decision, not before starting a new one.
 
 There is still no `openapi.yaml` in the repo. `specs/api-phase/design.md`
 and `requirements.md` are the durable source of truth for request/response
@@ -57,7 +61,8 @@ its own concrete justification.
 frontend/src/
   components/
     ui/            # Button, TextInput, Select, Textarea, Card, Table,
-                    # StatusPill, PriorityPill, Timeline
+                    # StatusPill, PriorityPill, Timeline, Field,
+                    # ErrorBanner, AsyncSection, Timestamp
     shell/          # AppShell, AuthShell
   pages/
     LoginPage.tsx
@@ -75,11 +80,16 @@ frontend/src/
   data/              # hardcoded mock objects/arrays — being retired page
                     # by page as each is wired to the real API; a page
                     # still importing from here after its Group in
-                    # tasks.md is done is a bug, not a leftover
+                    # tasks.md is done is a bug, not a leftover.
+                    # T-SR-1 deleted mockRequests + mockRequestDetail;
+                    # only mockStatusHistory survives, and T-SC-1 retires
+                    # it. Delete the folder when it goes.
   lib/
     api.ts           # the one sanctioned fetch client (built T-AUTH-4).
                     # Exports thin per-endpoint functions; the fetch
                     # wrapper itself is module-private by design.
+    async.ts         # Async<T> + useAsyncData (T-SR-1) — see Async state
+    datetime.ts      # the one date formatter (T-SR-1)
   routes.tsx         # route table + cosmetic auth guard + catch-all.
                     # Built in T-DEBT-2 (it did NOT exist through the
                     # whole prototype phase and Group 1 — Task 3 was
@@ -104,6 +114,17 @@ it there first, don't hardcode it in a component.
   the color directly. `Status` values change this phase (`open` /
   `in_progress` / `resolved` / `closed` only, per the locked backend
   enum) — update `STATUS_CONFIG` to match; `draft` is dropped.
+- **When retiring a value from an enum or config (e.g. a dropped
+  `Status`), grep its literal string across the whole tree, not just
+  typed declarations.** Some registrations are untyped strings —
+  `T-SR-1` found `status-draft` still registered in `src/lib/utils.ts`'s
+  `tailwind-merge` class-group config after the type and
+  `STATUS_CONFIG` entry were both deleted. A TypeScript usages search
+  never surfaces this kind of registration, and a class group naming a
+  nonexistent utility is silently inert — exactly the residue that makes
+  a retired value look revivable later. `T-SC-1`'s retirement of
+  `StatusHistoryState`/`STATUS_HISTORY_LABELS` is the next place this
+  matters.
 - Cards are flat: hairline border, no shadow, ≤4px radius.
 - `AppShell` wraps all in-app pages (post-login); `AuthShell` wraps only
   Login/Register. Don't reuse one for the other.
@@ -128,9 +149,50 @@ it there first, don't hardcode it in a component.
   before considering a task done** — not optional polish, it's part of every
   task's acceptance criteria going forward.
 - Loading and empty states didn't exist in the prototype
-  (`frontend-contract.md §8.2`/§8.4) — establish the pattern once, in the
-  first task that needs it (`T-SR-1`), then reuse everywhere. Don't invent
-  a second pattern later.
+  (`frontend-contract.md §8.2`/§8.4). **The pattern is now established
+  (`T-SR-1`) — reuse it, don't invent a second one.** See Async state below.
+
+## Async state
+
+Established in `T-SR-1`, used by every page that fetches. Two files:
+
+- `src/lib/async.ts` — the `Async<T>` union
+  (`pending` | `error` | `ready`) **and** the `useAsyncData(load, deps)`
+  hook that owns the effect. Import the hook, don't hand-roll a
+  `useEffect` + `useState` pair; the hook is where the cleanup lives.
+- `src/components/ui/AsyncSection.tsx` — renders pending and error; the
+  caller supplies ready via a render prop.
+
+**Empty is not a fourth union member.** It's `ready` with an empty array
+and the caller branches on length, because only the caller knows what
+empty means — "no requests match these filters", "you haven't submitted
+one yet" and "nobody has" are three different sentences on one page.
+`AsyncSection` deliberately doesn't handle it.
+
+**Every async effect invalidates its in-flight result on cleanup**, and
+`useAsyncData` does both halves: an `AbortController` aborted in cleanup,
+_and_ a `current` flag checked before every `setState`. The flag is not
+redundant belt-and-braces — it covers the window the controller can't, a
+promise that already resolved whose `.then` is queued behind a cleanup
+that has since run. Same family as `T-AUTH-4`'s `sessionGeneration`
+finding: the question is "was this response produced by a request I still
+care about?", answered at response handling, not at dispatch. Verified by
+removing it and watching a table show results contradicting its own
+filter controls.
+
+**Two resources on one page get two `Async` values, never one shared
+pending flag.** The dashboard's request list and its `/statuses` filter
+options have independent failure modes, and a slow `/statuses` must never
+blank a table that already arrived.
+
+Timestamps go through `src/lib/datetime.ts` (the one formatter) via the
+`Timestamp` component, which is what guarantees the `<time dateTime={iso}>`
+wrapper. No date library; `Intl.DateTimeFormat` covers it.
+
+`Priority` and `StatusName` live in `src/lib/api.ts`, not in the pill
+components — they're wire values, so the contract owns the vocabulary and
+`StatusPill`/`PriorityPill` own only how it looks. Don't redeclare either
+next to a component.
 
 ## Form pattern
 
@@ -235,17 +297,26 @@ one.
 
 ## Error surfacing
 
-Use the `error.fields` map from a `422` to drive react-hook-form's
-`setError` per field, matching the existing `Field` wrapper component
-pattern (duplicated verbatim across `LoginPage`, `RegisterPage`,
-`SubmitRequestPage` per `frontend-contract.md §8.3`). **If a task touches
-two of those three pages, extract the shared component in that same task**
-— don't schedule the cleanup separately once you're already there.
+`Field` (`components/ui/Field.tsx`) is the one shared wrapper driving
+`error.fields` from a `422` into react-hook-form's `setError` per field —
+extracted in `T-AUTH-5` from what was duplicated verbatim across
+`LoginPage`/`RegisterPage`/`SubmitRequestPage` (`frontend-contract.md
+§8.3`), with `SubmitRequestPage`'s copy retired in `T-SR-1`. Import it;
+never redeclare it locally, however small the page's own diff looks.
 
 For a `401` / `403` / `404` / `409` / `500` that isn't a field-level
-validation error, surface `error.message` as a page-level banner — reuse
-whatever banner pattern `RegisterPage`'s existing post-submit banner
-established, don't invent a second banner component.
+validation error, surface `error.message` via `ErrorBanner`
+(`components/ui/ErrorBanner.tsx`) — extracted in `T-SR-1` from
+`RegisterPage`'s original post-submit banner once a second and third page
+needed the same pattern. Import it; don't invent a second banner
+component.
+
+**If a task touches two pages that both need one of these patterns,
+extract (or confirm the existing extraction covers it) in that same
+task** — don't schedule the cleanup separately once you're already there.
+This is how `Field` and `ErrorBanner` both got made; it's also exactly
+the rule `SubmitRequestPage`'s local `Field` copy violated for a whole
+phase before `T-SR-1` closed it.
 
 ## Naming
 

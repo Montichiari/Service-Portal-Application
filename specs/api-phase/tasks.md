@@ -31,6 +31,20 @@
   ticket-number column was explicitly declined (`design.md §0`), and every
   other model needed already exists from the ORM phase. Confirmed through
   `T-SR-0`.
+- **Completed-task writeups live in `task-log.md`, not here.** Each task
+  below keeps only what a session needs before starting — Goal, Covers,
+  Scope, Acceptance criteria — with a one-line pointer where a
+  retrospective used to sit. The full account of what actually happened
+  (mutation-pass results, spec corrections, defects found in the tests
+  themselves) lives in `task-log.md` under the same task ID. Split at the
+  Group 2 checkpoint, once this file passed 1,100 lines with 6 of 14 tasks
+  still ahead of it — read `task-log.md` for the reasoning behind a past
+  decision; this file is what a new task needs before starting, not a
+  history of the project. When a task's own report contains something a
+  _later_ task needs to know before it starts, that goes in the later
+  task's Scope directly (see `T-SC-1`'s note on `RequestStatusPage`'s
+  heading, for example) — never left for the later task to dig out of the
+  log itself.
 
 ---
 
@@ -65,10 +79,7 @@ Auth guard pattern section.)
 significant, the later Auth tasks in this group may need their acceptance
 criteria adjusted first.
 
-**Complete — zero drift found.** All five files matched
-`frontend-contract.md` exactly. Findings folded into `T-AUTH-5`'s scope and
-`frontend/CLAUDE.md` (the `routes.tsx` absence, the snake_case casing
-decision) rather than left in this task's own notes.
+**Complete.** See `task-log.md#t-auth-0`.
 
 ---
 
@@ -109,15 +120,7 @@ infrastructure).
       claims) and an expired/tampered token fails decode
 - [x] No endpoint routes added in this task
 
-**Complete.** 38 new tests, all passing, mutation-tested (14 deliberate
-defects, all caught) per `backend/CLAUDE.md`'s "verify a test can actually
-fail" rule. One real gap the mutation pass surfaced worth knowing about
-generically, not just for this task: a tamper test that corrupts a token's
-encoding (rather than its _meaning_) can pass for the wrong reason — it
-fails before reaching the check you actually meant to test. Worth
-remembering next time you write a tamper/corruption test anywhere in this
-project: corrupt something that's still well-formed, or you're not testing
-what you think you're testing.
+**Complete.** See `task-log.md#t-auth-1`.
 
 ---
 
@@ -168,39 +171,7 @@ future slice depends on — build them once, here, correctly.
       serialization, middleware stack), plus file-path leakage, raw-
       fallback-response shape, and operator-side traceback logging.
 
-**Complete.** 90 tests total (39 new), mutation-tested per the same
-"verify it can fail" rule as `T-AUTH-1`. Corrections folded back into
-`requirements.md`/`design.md` rather than left as implementation-only
-notes: `XC-9` now exempts `HEAD`/`OPTIONS` (not just `GET`) and checks
-header _presence_, not an exact value; a new `XC-12` covers CORS, which
-was missing from the original spec entirely and would have silently
-broken `T-AUTH-4`; `XC-4` now explicitly covers framework-raised errors
-(an unmatched route), not only Pydantic validation failures.
-
-Built via a `create_app()` factory in `main.py` — tests construct the same
-app the server runs, not a hand-assembled lookalike that could drift from
-it. `require_role` is rank-based against the two-role hierarchy (`XC-6`
-already said "minimum required role" — this confirms the spec, doesn't
-change it): an admin passes a `require_role("user")` gate.
-
-**Resolved**: `get_current_user` loads the full user row from the database
-on every protected request, rather than trusting the JWT's `role` claim
-alone. This reverses `design.md`'s originally stated rationale for
-embedding `role` in the token (avoiding a DB hit per request) — kept
-deliberately, not by default; see the note below this task list for the
-full tradeoff and the resulting `XC-13`.
-
-`db_session` was promoted to a top-level `tests/conftest.py` during this
-task already (this task's own tests needed it from `tests/api/`) — the
-prerequisite originally written into `T-AUTH-3` below is done; that task
-should verify it, not redo it.
-
-**Resolved**: keep `get_current_user` loading the fresh user row on every
-protected request (immediate effect for deactivation/deletion, free real
-names for `/auth/me`) over reverting to trusting the JWT claims alone.
-`design.md`'s JWT claims section and `requirements.md`'s new `XC-13`
-carry the final wording — this note is kept only as a record that the
-choice was made deliberately, not defaulted into.
+**Complete.** See `task-log.md#t-auth-2`.
 
 ---
 
@@ -286,26 +257,7 @@ mystery later.
       after the token's natural expiry — confirms the DB lookup is
       actually happening, not just present in the code path
 
-**Complete.** 147 tests total (52 new), mutation-tested — 31 deliberate
-defects, all caught. That pass found a real hole in the tests themselves:
-the cookie-expiry assertion derived its expected value from the same TTL
-constant it was testing, so changing the access token to 30 days kept it
-green. Now pinned to literal `3600`/`2592000` from `AUTH-6`. Worth
-generalizing: **a test that computes its expectation from the code under
-test asserts only self-consistency, not correctness** — the same class of
-error as `T-AUTH-1`'s tamper test passing for the wrong reason.
-
-Three decisions folded back into the specs rather than left as
-implementation notes: `AUTH-17` (email case-folding, previously
-unspecified), the `design.md` logout contradiction fixed in favor of
-`AUTH-13`'s idempotency, and `XC-12`'s documented `ServerErrorMiddleware`
-exception for the `500` path. `AUTH-18` records the login-timing decoy
-as a deliberate blind spot — implemented but not test-enforced, since a
-wall-clock assertion would be flaky.
-
-Also added `email-validator` to `requirements.txt` (Pydantic's `EmailStr`
-needs it), and auth tests use `@example.com` rather than the DB fixtures'
-`@example.test`, which `email-validator` rejects as a reserved TLD.
+**Complete.** See `task-log.md#t-auth-3`.
 
 ---
 
@@ -356,29 +308,7 @@ conventions section — no page changes yet.
 - [x] No page or component imports this yet — verified by grepping for
       the import outside `src/lib/`
 
-**Complete.** Verified in a real Chromium page against the running
-backend, so `credentials: 'include'`, CORS, and the `httpOnly`/`Secure`
-cookies were genuinely exercised rather than mocked — including the
-`XC-12` error-path CORS behavior specced during `T-AUTH-3`, which is
-exactly the thing a mocked test would have missed.
-
-The concurrency finding is worth remembering past this task: deduping
-concurrent refreshes with a shared in-flight promise **looks** correct
-and isn't. A `401` landing just after a refresh settles was generated
-against the already-replaced token; retrying it starts a second,
-redundant refresh — which, given `AUTH-11`'s family revocation, is one
-arrival-order shift away from signing the user out of everything. The fix
-reframes the question from "is a refresh running?" to "was this `401`
-produced by a token that's already been replaced?" — a stale-response
-problem in concurrency clothing.
-
-Exports are thin per-endpoint functions (`register`/`login`/`getMe`/
-`logout`); the underlying wrapper stays module-private so `T-AUTH-5`
-can't accidentally grow a second client alongside it.
-
-Two dev-database users exist from this task's live testing
-(`t-auth-4.<timestamp>@example.com`) — usable as seeded logins for
-`T-AUTH-5`, or delete them.
+**Complete.** See `task-log.md#t-auth-4`.
 
 ---
 
@@ -475,20 +405,7 @@ concern from wiring auth itself. Flag it, don't fix it here.
 - [x] `confirmPassword` never appears in the network request body sent to
       `POST /auth/register`
 
-**Complete.** Verified live in Chromium against the running backend.
-`AUTH-7`'s non-enumeration guarantee now holds end-to-end: identical
-banner text for a wrong password on a real account and for an
-unregistered address — a backend guarantee that a careless UI could
-easily have undone by distinguishing them at the presentation layer.
-
-Error routing by status is working as designed: a `422` lands inline on
-the offending field via `fields`, a `409` surfaces as a page-level banner
-because `ConflictError` deliberately carries no `fields` map. That split
-is the `error.code`-not-`error.message` branching rule paying off.
-
-**Carried debt out of this task** (both tracked below, neither blocking):
-`SubmitRequestPage` still holds its own local `Field` copy, and routes
-remain unguarded.
+**Complete.** See `task-log.md#t-auth-5`.
 
 ---
 
@@ -504,6 +421,8 @@ extract-when-you-touch-two-pages rule was satisfied literally by
 third copy survives. A later edit to `Field.tsx` would silently not apply
 to `SubmitRequestPage`, which is exactly the failure mode the rule exists
 to prevent.
+
+**Done** — folded into `T-SR-1`; see that task's acceptance criteria.
 
 ---
 
@@ -559,33 +478,7 @@ anyone later trusts it as an access control.
       page reload (verify in the network tab — no document request)
 - [x] The guard's cosmetic-only nature is commented at its definition
 
-**Complete.** The pending-state criterion was verified by removing the
-`isLoading` branch and confirming the failure: without it, a signed-in
-user isn't briefly flashed the login page — they're bounced there
-permanently, 8/8 samples, never getting back. Worth recording how much
-worse the real failure was than the predicted one, and how it would
-otherwise have been found: only by hard-reloading while signed in, which
-rarely happens during development.
-
-**Structural decision worth carrying forward**: routes are guarded as a
-group, not with per-route wrappers. A per-route wrapper makes protection
-something you must remember to add, so a future route ships unguarded by
-omission; guarding the block makes it the default, so a route ships
-unguarded only deliberately. Same principle as `XC-8` (server-controlled
-fields never accepted from clients) and sub-resources over embedded
-collections — make the safe thing structural rather than a thing to
-remember.
-
-Also verified: the redirect uses `replace`, not `push`, so Back doesn't
-trap the user in a redirect loop. Not-found is public and outside the
-guard on purpose, so a mistyped URL says so in both session states rather
-than silently becoming a login page. Pending renders `null` rather than a
-spinner — the loading pattern is established once, in `T-SR-1`, and
-inventing a second one here first is what that rule exists to prevent.
-
-Deliberately out of scope: active-link styling (a design decision, never
-specified) and return-to-intended-destination after login (login still
-always lands on `/`).
+**Complete.** See `task-log.md#t-debt-2`.
 
 ---
 
@@ -640,54 +533,12 @@ out MSW. Playwright against the running stack tests the thing itself.
       distinguish wrong-password from unknown-email
 - [x] No test depends on a hand-maintained database row
 
-**Complete.** 5 specs, green against the real stack via `npm run test:e2e`.
-
-**The verification step caught a real defect — in the test, not the app.**
-The first version of the concurrency test passed _with the guard
-removed_. Its route handler keyed a delay on a shared mutable counter and
-read it back after an `await`, so a later request could increment it
-mid-handler; the hold never applied, both `401`s arrived together, and the
-shared in-flight promise alone sufficed to dedupe them. The test was
-passing without exercising the thing it was named after. Fixed by
-capturing the call index at handler entry, plus an
-`expect(meCalls).toBe(4)` guard so it fails loudly if the delayed call
-ever stops `401`-ing rather than silently proving nothing.
-
-**Third occurrence of the same failure family in this project** —
-`T-AUTH-1`'s tamper test corrupted encoding rather than meaning;
-`T-AUTH-3`'s expiry assertion computed its expectation from the constant
-under test; this one let a shared counter race. Different mechanisms, one
-pattern: the test passed, and would have kept passing, without the thing
-it named ever being true. All three were surfaced only by removing the
-thing under test and watching for red. That's the argument for the rule,
-not a footnote to it.
-
-Setup notes worth keeping: the concurrency spec imports `api.ts` by its
-dev-server URL (`/src/lib/api.ts`) — the same URL the app imports, so
-it's the app's own client instance, not a copy. Building a page that
-fires two simultaneous calls would have tested the scaffolding instead.
-Session expiry is simulated by dropping the `access_token` cookie while
-keeping `refresh_token` — a real expiry as far as the client can tell.
-Runs serially (`workers: 1`) on purpose: one real backend and database,
-and readable failures beat saving a few seconds.
+**Complete.** See `task-log.md#t-debt-3`.
 
 ---
 
-**Group 1 complete — Auth end-to-end.** Backend (`T-AUTH-1` through
-`T-AUTH-3`) and frontend (`T-AUTH-4`, `T-AUTH-5`) both built, reviewed,
-and integrated.
-
-**Checkpoint decisions, both resolved**: build the route guard
-(`T-DEBT-2`) and stand up Playwright (`T-DEBT-3`) before `T-SR-0` opens
-Group 2. Run them in that order — the guard first, so Playwright's first
-tests cover the finished auth surface rather than one that's about to
-change underneath them.
-
-What the slice validated, worth noting before repeating the pattern three
-more times: building vertically surfaced problems a backend-then-frontend
-split would have hidden until much later — `XC-12`'s error-path CORS gap,
-the refresh-concurrency bug, the `422`-vs-`409` error routing split. None
-of those are visible until both halves exist and talk to each other.
+**Group 1 complete — Auth end-to-end.** See `task-log.md#group-1-checkpoint`
+for what the slice validated and the two checkpoint decisions it produced.
 
 ---
 
@@ -745,58 +596,7 @@ needs the endpoint.
 - [x] N+1: statement count is _equal_ for 3 rows and 15 rows, not merely
       below a threshold
 
-**Complete.** 192 tests total (45 new), mutation-tested — 23 deliberate
-defects, all caught (the six required, plus 17 more).
-
-**The mutation pass found a real defect — in the test, not the app**, and
-it's the most instructive one this project has produced. The N+1 test
-passed with all three `joinedload` calls removed, for two independent
-reasons, either of which alone would have made the assertion meaningless:
-
-1. The test seeded its rows through the same session the handler used, so
-   every related row was already in SQLAlchemy's identity map and a lazy
-   many-to-one load never emitted SQL. **Production cannot reproduce
-   this** — `get_db` yields a fresh session per request — so the fixture
-   was the only reason the assertion held. Fixed with `expunge_all()`
-   before each measured call.
-2. Every row shared one requestor and one status, which makes an N+1
-   self-limit at two queries regardless of row count. Fixed by giving
-   each row its own requestor and assignee, with statuses spread across
-   all four.
-
-Generalising, and now recorded in `backend/CLAUDE.md`'s Testing section:
-**an N+1 test that shares a session with the code under test measures the
-fixture, not the query** — and homogeneous fixture data hides the growth
-even when the session doesn't. Neither is visible from reading the test.
-This is the fourth instance of the project's recurring pattern, after
-`T-AUTH-1`, `T-AUTH-3`, and `T-DEBT-3`.
-
-**Process finding**: a harness run was killed by a shell pipeline
-truncation and left mutation 13 applied in the working tree. The full
-suite caught it (`test_create_ignores_client_supplied_server_fields` went
-red) and it was restored — but that's a good suite rather than a control.
-`backend/CLAUDE.md` now requires a clean-tree assertion at the end of a
-mutation pass and forbids piping a long harness run through a truncating
-command.
-
-**Spec problems found and fixed rather than worked around**:
-
-- `SR-14` and `SR-15` did not exist in `requirements.md` — written in.
-  `SR-14` is load-bearing, not a nicety: `SC-3` forbids the frontend
-  synthesising history rows, so without it `T-SC-1`'s stepper shows a
-  brand-new request with no step reached and no legitimate fix.
-- `design.md §4` was silent on list ordering, on the initial history row,
-  and on a missing `'open'` row — all three now documented.
-- `design.md §1`'s "Role enforcement" paragraph was stale, still saying
-  the dependency reads `role` off the validated JWT claim, which `XC-13`
-  reversed during `T-AUTH-2`. Corrected — it's the paragraph someone
-  adding a gated route would find first.
-- `XC-10` ("paginate every list endpoint") contradicted `ST-2`
-  (`/statuses` is deliberately unpaginated). Resolved in favour of the
-  more specific `ST-2`, and `XC-10` amended to name the exception rather
-  than leaving the contradiction resolved only in someone's head.
-
-No migration needed, no model changed.
+**Complete.** See `task-log.md#t-sr-0`.
 
 ---
 
@@ -838,7 +638,35 @@ async and can genuinely be empty for a new user.
 phase.** `frontend/CLAUDE.md` is explicit that it gets invented once,
 here, and reused by Groups 3 and 4 — `T-DEBT-2` deliberately rendered
 `null` while pending rather than inventing a spinner first. Don't leave a
-second pattern behind.
+second pattern behind. Build it as a discriminated union, not a boolean:
+
+```ts
+type Async<T> =
+  | { status: "pending" }
+  | { status: "error"; error: ApiError }
+  | { status: "ready"; data: T };
+```
+
+A boolean `isLoading` plus nullable `data` plus nullable `error` permits
+combinations that are nonsense (loading _and_ data _and_ error) and
+relies on render-order convention to stay safe — the same failure shape
+`T-DEBT-2` hit by collapsing a three-state session into a boolean. Empty
+is **not** a fourth member: it's `ready` with an empty array, and the
+dashboard branches on length — a new user's empty list is a legitimate
+state, not an error. Put the shared type in one place under `src/` and
+use it on all three pages; a second shape appearing on any of them is a
+sign this wasn't actually established, only described.
+
+**Every effect that sets state from an async call must invalidate its
+in-flight result on cleanup** — an `AbortController` aborted in cleanup,
+or an `ignore` flag checked before `setState`. The dashboard's filters
+make this reachable in normal use, not just in theory: change a filter
+twice quickly and an earlier response landing after a later one wins,
+showing results that contradict the controls. Same family as
+`T-AUTH-4`'s `sessionGeneration` finding — "was this response produced by
+a request I still care about?", decided at response handling, not
+dispatch. It will not reproduce against localhost by accident; write it
+correctly rather than waiting to observe it break.
 
 Also in scope, from `T-SR-0`'s report:
 
@@ -853,7 +681,21 @@ Also in scope, from `T-SR-0`'s report:
   of four strings. `SR-3` returns a `422` for an unrecognised name, so a
   hardcoded list that drifts from the seed produces a broken filter
   rather than an empty result. `GET /statuses` requires no session
-  (`ST-1`), so it can load before the auth bootstrap resolves.
+  (`ST-1`), so it can load before the auth bootstrap resolves. Priority
+  options ARE hardcoded (`low`/`medium`/`high`) — that set is a fixed
+  CHECK constraint (`SR-4`), not a lookup table, so the asymmetry with
+  status is deliberate. The list and its filter dropdown are two
+  independent async resources with independent failure modes: a slow or
+  failed `/statuses` must never blank a request table that already
+  arrived, and the two must not share one pending flag.
+- The dashboard's date column shows and sorts by the **same** field:
+  `created_at`, labelled "Submitted" — `SR-15` orders by `created_at
+DESC`, and a column showing `updated_at` instead would make the list
+  look mis-sorted.
+- Pagination controls (prev/next, "Showing X–Y of N") driven by the
+  `XC-10` envelope's `total`/`page`/`page_size` — without them a user
+  past the default page size of 20 silently sees only the first page
+  with nothing indicating more exist.
 - **`assignee` is always `null` this phase** — there is no assignment
   path and `PATCH` is deferred (`design.md §7`). Render "Unassigned"
   everywhere rather than hiding the field or inventing a placeholder
@@ -867,30 +709,94 @@ Also in scope, from `T-SR-0`'s report:
   empty-state text on the one page. Do **not** add a "My requests / All
   requests" toggle or a `?requestor_id=me` param — no designed surface
   consumes them, and they'd arrive without a consumer.
+- Timestamps arrive as ISO 8601 UTC (`XC-2`), replacing the prototype's
+  pre-formatted strings — one formatting helper module, used everywhere,
+  rendering inside `<time dateTime={iso}>`. `Intl.DateTimeFormat` covers
+  this; no date library needed.
 
 **Acceptance criteria**:
 
-- [ ] Dashboard renders real requests for the logged-in user, empty state
+- [x] Dashboard renders real requests for the logged-in user, empty state
       when there are none
-- [ ] `T-DEBT-1`: `SubmitRequestPage` imports the shared `Field.tsx` and
+- [~] No page imports from `src/data/`; the retired fixture files are
+  deleted — **partially met, deliberately.** `mockRequests.ts` and
+  `mockRequestDetail.ts` are deleted. `mockStatusHistory.ts` survives
+  because `RequestStatusPage` is `T-SC-1`'s to convert; see
+  `task-log.md#t-sr-1`
+- [x] `T-DEBT-1`: `SubmitRequestPage` imports the shared `Field.tsx` and
       its local copy is deleted — no `Field` definition survives outside
       `components/ui/Field.tsx`
-- [ ] Submitting the form creates a real request and it appears in the
+- [x] Submitting the form creates a real request and it appears in the
       dashboard afterward (closes the prototype's gap at
       `frontend-contract.md §8.7` where submission never touched the list)
-- [ ] Detail page 404s visibly (not silently rendering wrong data) for an
+- [x] Submit button disabled for the duration of the request, not only
+      after success (same correctness fix as `T-AUTH-5`)
+- [x] Detail page 404s visibly (not silently rendering wrong data) for an
       id the current user can't access — closes `frontend-contract.md
-    §3.7`'s "always the same object regardless of `:id`" gap
-- [ ] `STATUS_CONFIG` carries exactly the four backend statuses; `draft`
+  §3.7`'s "always the same object regardless of `:id`" gap
+- [x] `STATUS_CONFIG` carries exactly the four backend statuses; `draft`
       appears nowhere in the frontend
-- [ ] The status filter's options are fetched from `GET /statuses`, not
-      hardcoded
-- [ ] An admin and a regular user both see accurate heading and
-      empty-state copy for what the list actually contains
-- [ ] Checked at ~1280px and ~375px, per `frontend/CLAUDE.md`
-- [ ] Playwright specs added for the dashboard's loaded and empty states,
-      and for the detail-page `404` — verified by removing the behaviour
-      and watching each go red
+- [x] The status filter's options are fetched from `GET /statuses`, not
+      hardcoded, and a slow/failed call doesn't block the request table
+- [x] Rapid filter changes never leave the table showing results that
+      contradict the controls (verify with a deliberately delayed
+      response in a Playwright route handler; per `T-DEBT-3`'s finding,
+      key the delay off something captured at handler entry, not a
+      shared mutable counter read after an `await`)
+- [x] Pagination controls reflect `total`/`page`/`page_size`; page 2 works
+- [x] An admin and a regular user both see accurate heading and
+      empty-state copy for what the list actually contains — verified
+      live for both roles, with one variant unobservable; see
+      `task-log.md#t-sr-1`
+- [x] One formatting helper module; no pre-formatted date strings survive
+      and no second formatter exists
+- [x] Checked at ~1280px and ~375px, per `frontend/CLAUDE.md`
+- [x] Playwright specs added for: dashboard empty state, create-then-see-
+      on-dashboard, detail-page `404` for another user's request, and
+      status filter options coming from the network — each verified by
+      removing the behaviour and observing red, per `backend/CLAUDE.md`'s
+      "a test never observed to fail is not verified" rule applied here
+      too
+
+**Complete.** See `task-log.md#t-sr-1`.
+
+---
+
+### T-DEBT-5 — Title cap and admin requestor column
+
+**Decided at the Group 2 checkpoint**: two small, real gaps identified in
+`T-SR-1` (`task-log.md#t-sr-1`), both cheap enough to close now rather
+than carry forward with no later task naturally reopening these files —
+same reasoning as bundling `T-DEBT-2`/`T-DEBT-3` at the Group 1
+checkpoint.
+
+**Scope**:
+
+1. Raise `submitRequestSchema`'s `title` max from 100 to 200, matching
+   `SR-7`. The 100 was a prototype-phase leftover; `SR-7`'s 200 is the
+   real column limit, and unlike `description` there was never a
+   documented two-tier UX-cap-below-a-backstop design for `title`
+   (`design.md §4` is explicit about that split for `description` and
+   silent on `title`). Update the validation error message to match.
+2. Add a "Requestor" column to `RequestsDashboardPage`'s table, rendered
+   only when the viewing user's role is `admin` (`SR-2` gives admins
+   every request; a regular user's own name in every row would be
+   redundant). Use each item's existing embedded `requestor` field — no
+   new fetch, no backend change. Check this doesn't break the table at
+   ~375px; collapse or hide the column there if the existing table
+   pattern requires it.
+
+**Acceptance criteria**:
+
+- [ ] A 150-character title is accepted (previously rejected at 100); a
+      201-character title is still rejected with `fields.title` populated
+- [ ] `RequestsDashboardPage` shows a Requestor column when the viewer is
+      `admin`; a regular user's view is unchanged
+- [ ] Checked at ~1280px and ~375px
+
+Report, then stop — `T-CM-0` is next.
+
+---
 
 **Group 2 checkpoint** before Group 3.
 
@@ -923,7 +829,8 @@ comment composer UI that **doesn't exist yet** — `frontend-contract.md
 §6.5` documents its absence as deliberate for the prototype phase; that
 phase is over. Include an `is_internal` checkbox, rendered only for
 admin-role users (`CM-7`/`CM-8`). Reuse `T-SR-1`'s loading and
-empty-state pattern; do not invent a second one.
+empty-state pattern (`src/lib/async.ts`, `AsyncSection` — see
+`frontend/CLAUDE.md`'s Async state section); do not invent a second one.
 
 **Acceptance criteria**:
 
@@ -982,7 +889,17 @@ whole five-state `StatusHistoryState` vocabulary
 statuses and no `assigned` state, and there is no assignment data behind
 that label at all (`assignee` is always `null` this phase). Deleting it
 also resolves `frontend-contract.md §9-#8`, the two-non-matching-status-
-enums inconsistency, since only `Status` survives.
+enums inconsistency, since only `Status` survives. **When you delete this
+vocabulary, grep for its literal string values across the whole tree, not
+just typed usages** — `T-SR-1` found a retired status name surviving as
+an untyped string in `src/lib/utils.ts`'s tailwind-merge class-group
+config, invisible to a TypeScript usages search (`task-log.md#t-sr-1`).
+
+`RequestStatusPage`'s heading currently shows the request id alone, with
+no title — `T-SR-1` deliberately dropped it rather than fetch real
+request data just to back a heading sitting above a still-fake timeline
+(`task-log.md#t-sr-1`). This task wires the page to real data; restore
+the title in the heading now that it isn't backing a fabrication.
 
 **Acceptance criteria**:
 
@@ -992,7 +909,9 @@ enums inconsistency, since only `Status` survives.
 - [ ] Posting a status change (as admin) updates the stepper without a
       full reload
 - [ ] `StatusHistoryState` and `STATUS_HISTORY_LABELS` no longer exist
-      anywhere in the frontend
+      anywhere in the frontend, including as untyped string literals
+- [ ] `RequestStatusPage`'s heading shows the real request title, not
+      just the id
 
 **Group 4 checkpoint. All four vertical slices integrated — capstone API
 layer complete.**
