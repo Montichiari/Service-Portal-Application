@@ -328,14 +328,14 @@ starting):
   `role`) — note `§1.5`'s finding that zero components currently consume
   `role`, so this is a clean widen with nothing to migrate
 - `RegisterPage`/`registerSchema`: split `fullName` into `first_name` +
-  `last_name` fields, named exactly that (snake_case, per
+  `last_name` fields, named exactly that (`snake_case`, per
   `frontend/CLAUDE.md`'s Naming exception for API-shaped schemas —
   `design.md §0` decision 5), each 1–100 chars. `password`: min 12 chars
   (`AUTH-3`) — **length only, no composition regex** (no required
   uppercase/digit/symbol). This was decided deliberately during spec
   review, not left unspecified — don't add a composition regex "to be
   thorough"; that's reintroducing a rule that was considered and rejected,
-  not filling a gap. For a max: `AUTH-16`'s real limit is 72 _bytes_, not
+  not filling a gap. For a max: `AUTH-16`'s real limit is 72 `_bytes_`, not
   characters, so a client-side `.max(72)` on string length is a false
   guarantee (an emoji-heavy password can clear that char count and still
   fail server-side). Either measure bytes client-side too (`new
@@ -733,7 +733,7 @@ DESC`, and a column showing `updated_at` instead would make the list
       after success (same correctness fix as `T-AUTH-5`)
 - [x] Detail page 404s visibly (not silently rendering wrong data) for an
       id the current user can't access — closes `frontend-contract.md
-  §3.7`'s "always the same object regardless of `:id`" gap
+§3.7`'s "always the same object regardless of `:id`" gap
 - [x] `STATUS_CONFIG` carries exactly the four backend statuses; `draft`
       appears nowhere in the frontend
 - [x] The status filter's options are fetched from `GET /statuses`, not
@@ -841,6 +841,11 @@ empty-state pattern (`src/lib/async.ts`, `AsyncSection` — see
       (closes `frontend-contract.md §6.4`)
 - [ ] A regular user never sees the internal-comment checkbox in the DOM
       (not just hidden via CSS — absent)
+- [ ] Requestor-column regression (T-DEBT-5 debt): two service requests
+      with two different requestors show two different names in the
+      admin dashboard's Requestor column, not the viewer's own name
+      repeated. Manually verified in T-DEBT-5; never captured as an
+      automated test until now.
 - [ ] Posting a comment appends it to the visible list without a full
       page reload
 
