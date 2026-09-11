@@ -4,6 +4,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { AppShell } from '@/components/shell/AppShell'
 import { AsyncSection } from '@/components/ui/AsyncSection'
 import { Button } from '@/components/ui/Button'
+import { Pagination } from '@/components/ui/Pagination'
 import { PriorityPill } from '@/components/ui/PriorityPill'
 import {
   Select,
@@ -331,61 +332,5 @@ function EmptyState({
         ? 'No requests have been submitted yet.'
         : 'You haven’t submitted any requests yet. Use “New request” to raise one.'}
     </p>
-  )
-}
-
-/**
- * Prev / next plus a count, driven entirely by XC-10's envelope.
- *
- * Without this a user past the default page size of 20 sees the first page and
- * nothing at all indicating the rest exist — the list just stops. `total` and
- * `page_size` come from the response rather than from constants here, so a
- * `page_size` the server clamped (XC-11) is reported as what was actually
- * applied, not as what was asked for.
- */
-function Pagination({
-  total,
-  page,
-  pageSize,
-  shown,
-  onChange,
-}: {
-  total: number
-  page: number
-  pageSize: number
-  shown: number
-  onChange: (page: number) => void
-}) {
-  const first = (page - 1) * pageSize + 1
-  // Counted from what actually arrived rather than `page * pageSize`, which
-  // over-reports on the last page.
-  const last = first + shown - 1
-  const hasPrevious = page > 1
-  const hasNext = last < total
-
-  return (
-    <div className="flex flex-col items-center gap-3 md:flex-row md:justify-between">
-      <p className="text-dense text-text-secondary">
-        Showing {first}–{last} of {total}
-      </p>
-      <div className="flex items-center gap-2">
-        <Button
-          type="button"
-          variant="secondary"
-          disabled={!hasPrevious}
-          onClick={() => onChange(page - 1)}
-        >
-          Previous
-        </Button>
-        <Button
-          type="button"
-          variant="secondary"
-          disabled={!hasNext}
-          onClick={() => onChange(page + 1)}
-        >
-          Next
-        </Button>
-      </div>
-    </div>
   )
 }

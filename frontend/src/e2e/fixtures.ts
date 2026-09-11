@@ -1,3 +1,6 @@
+import { execFileSync } from 'node:child_process'
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { test as base, expect, type APIRequestContext, type Page } from '@playwright/test'
 
 /**
@@ -39,12 +42,20 @@ export function uniqueEmail(): string {
  * unrelated markup change fail the whole suite. Registration sets no cookies
  * (design.md §2), so this leaves the browser signed out.
  */
-export async function registerViaApi(request: APIRequestContext): Promise<TestUser> {
+export async function registerViaApi(
+  request: APIRequestContext,
+  // Overridable because a test that needs to tell two users apart on screen
+  // needs them to have different names — the shared default would make the
+  // T-CM-1 requestor-column test pass whichever name it rendered.
+  name: { first_name: string; last_name: string } = {
+    first_name: 'Playwright',
+    last_name: 'Runner',
+  },
+): Promise<TestUser> {
   const user: TestUser = {
     email: uniqueEmail(),
     password: TEST_PASSWORD,
-    first_name: 'Playwright',
-    last_name: 'Runner',
+    ...name,
   }
 
   const response = await request.post(`${API_BASE_URL}/api/v1/auth/register`, {
@@ -119,6 +130,72 @@ export async function createRequestViaApi(
   })
   expect(response.status(), `creating ${input.title}`).toBe(201)
   return (await response.json()) as SeededRequest
+}
+
+/** Repo root, from this file — where docker-compose.yml lives. */
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..')
+
+/**
+ * Promote a registered user to `admin`, by `UPDATE` against the dev database.
+ *
+ * There is no admin-promotion endpoint and deliberately none: AUTH-4 ignores a
+ * `role` in the register body precisely so the API cannot mint an admin, and
+ * `deps.py` reads `role` off the user row on every request rather than from the
+ * token's claim — which is what makes an out-of-band `UPDATE` the documented
+ * way promotion happens, and what makes it take effect on the caller's very
+ * next request.
+ *
+ * Call this **before** signing the browser in: `AuthContext` caches what login
+ * returned, so a promotion afterwards leaves the UI reading `user` until the
+ * next `GET /auth/me`.
+ *
+ * SR-2, CM-3 and CM-8 all behave differently for an admin, and T-DEBT-5 checked
+ * the first of them by hand against a manually promoted account. Hand-promotion
+ * is exactly the hand-maintained fixture this suite avoids, so it is automated
+ * here instead.
+ */
+export function promoteToAdmin(user: TestUser): void {
+  let output: string
+  try {
+    output = execFileSync(
+      'docker',
+      [
+        'compose',
+        'exec',
+        '-T',
+        'db',
+        'psql',
+        '-U',
+        'portal',
+        '-d',
+        'portal',
+        '-v',
+        'ON_ERROR_STOP=1',
+        '-v',
+        `email=${user.email}`,
+      ],
+      {
+        cwd: REPO_ROOT,
+        encoding: 'utf8',
+        stdio: 'pipe',
+        // Fed on stdin rather than through `-c`: psql interpolates `:'email'`
+        // — its own quoting of a variable, so the address is never spliced
+        // into SQL text by us — only when reading a script, not a `-c` string.
+        input: "UPDATE users SET role = 'admin' WHERE email = :'email';\n",
+      },
+    )
+  } catch (cause) {
+    throw new Error(
+      `Could not promote ${user.email} to admin. This uses the docker-compose ` +
+        `Postgres from the repo root (docker compose exec db psql …) — the same ` +
+        `database backend/.env points DATABASE_URL at. Is the db service up?`,
+      { cause },
+    )
+  }
+
+  // `UPDATE 0` is a successful command that changed nothing — which would leave
+  // a "regular user sees the admin view" test passing for the wrong reason.
+  expect(output, `promoting ${user.email}`).toContain('UPDATE 1')
 }
 
 /** A title nothing else in the database will share, so a locator can't collide. */

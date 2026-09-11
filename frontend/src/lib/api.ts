@@ -452,7 +452,10 @@ export interface ServiceRequestQuery {
   priority?: Priority
 }
 
-function queryString(query: ServiceRequestQuery): string {
+// Generic over the query shape rather than tied to one endpoint's: every list
+// endpoint here builds its string the same way, and the alternative is a second
+// copy of the omit-undefined rule below for comments to get subtly wrong.
+function queryString(query: object): string {
   const params = new URLSearchParams()
   // Omitted rather than sent empty: the backend reads "absent" as "no filter",
   // and `?status=` would reach `_resolve_status_filter` as a name to look up.
@@ -503,4 +506,79 @@ export function getServiceRequest(
   return request<ServiceRequest>(`/service-requests/${encodeURIComponent(id)}`, {
     signal,
   })
+}
+
+// --- Comments (design.md §6) -------------------------------------------------
+
+/**
+ * design.md §6's `Comment`.
+ *
+ * `author` is a `UserSummary`, not the prototype's fused `'Priya Nair — IT
+ * Service Desk'` string (frontend-contract.md §6.3), and `id` is a real one, so
+ * a list can key on it rather than on an array index (§6.4).
+ *
+ * `is_internal` is present on every comment including a regular user's, where
+ * CM-2 guarantees it is always `false` — the field is filtered at the query
+ * level server-side, so the shape does not vary by caller role and there is no
+ * second type or conditional parsing to write here.
+ */
+export interface Comment {
+  id: string
+  author: UserSummary
+  body: string
+  is_internal: boolean
+  created_at: string
+  updated_at: string
+}
+
+/** `GET /service-requests/{id}/comments`' query string (XC-10). */
+export interface CommentQuery {
+  page?: number
+  page_size?: number
+}
+
+/**
+ * CM-1 through CM-4. Ordered `created_at` **ascending** — oldest first, the
+ * opposite of SR-15's newest-first list, because a conversation reads
+ * top-to-bottom. That asymmetry is deliberate; it is not the dashboard's order
+ * applied wrongly.
+ *
+ * A request the caller cannot see answers `404`, from the same place SR-12's
+ * comes from — so the comments of an invisible request are as invisible as the
+ * request itself.
+ */
+export function getComments(
+  requestId: string,
+  query: CommentQuery = {},
+  signal?: AbortSignal,
+): Promise<Page<Comment>> {
+  return request<Page<Comment>>(
+    `/service-requests/${encodeURIComponent(requestId)}/comments${queryString(query)}`,
+    { signal },
+  )
+}
+
+/**
+ * CM-5's body.
+ *
+ * `is_internal` is optional and defaults to `false` server-side (CM-8). A
+ * `user`-role caller sending `true` is refused `403` outright rather than
+ * quietly given a public comment (CM-7, design.md §6's locked decision 3) —
+ * which is why the composer only ever sends `true` from an admin, and why a
+ * `403` here is worth surfacing rather than swallowing.
+ */
+export interface CreateCommentInput {
+  body: string
+  is_internal?: boolean
+}
+
+/** CM-5. `author` is the session's, never client-supplied. */
+export function createComment(
+  requestId: string,
+  input: CreateCommentInput,
+): Promise<Comment> {
+  return request<Comment>(
+    `/service-requests/${encodeURIComponent(requestId)}/comments`,
+    { method: 'POST', body: input },
+  )
 }
