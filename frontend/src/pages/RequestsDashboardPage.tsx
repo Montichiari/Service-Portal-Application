@@ -30,6 +30,7 @@ import {
   type StatusName,
 } from '@/lib/api'
 import { useAsyncData } from '@/lib/async'
+import { fullName } from '@/lib/names'
 
 /**
  * Requests Dashboard (`/`) — the post-login landing page, wired to
@@ -51,9 +52,9 @@ import { useAsyncData } from '@/lib/async'
  *
  * Layout: bounded to the table/dashboard width and centered per
  * design-tokens.md "Content width" (the shared .content-dashboard class).
- * Below --bp-mobile the priority and date columns drop via `hidden
+ * Below --bp-mobile the requestor, priority and date columns drop via `hidden
  * md:table-cell` — the same Table with fewer columns, not a separate stacked
- * layout.
+ * layout. Title and Status are what survive at 375px, for every role.
  */
 
 /** The Select value meaning "don't filter". Radix forbids an empty-string item. */
@@ -185,6 +186,19 @@ export default function RequestsDashboardPage() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Title</TableHead>
+                      {/*
+                       * Admin-only (T-DEBT-5). SR-2 hands an admin every
+                       * request, so "who raised this" is the column that tells
+                       * two rows apart; for a regular user, scoped by SR-1 to
+                       * their own, it would be their own name twenty times.
+                       * Absent from the DOM rather than CSS-hidden — same rule
+                       * the internal-comment checkbox follows in CM-7.
+                       */}
+                      {isAdmin ? (
+                        <TableHead className="hidden md:table-cell">
+                          Requestor
+                        </TableHead>
+                      ) : null}
                       <TableHead>Status</TableHead>
                       <TableHead className="hidden md:table-cell">
                         Priority
@@ -222,6 +236,11 @@ export default function RequestsDashboardPage() {
                             {request.title}
                           </Link>
                         </TableCell>
+                        {isAdmin ? (
+                          <TableCell className="hidden text-text-secondary md:table-cell">
+                            {fullName(request.requestor)}
+                          </TableCell>
+                        ) : null}
                         <TableCell>
                           <StatusPill status={request.status.name} />
                         </TableCell>

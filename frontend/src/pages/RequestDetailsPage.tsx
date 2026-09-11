@@ -5,8 +5,9 @@ import { Card } from '@/components/ui/Card'
 import { PriorityPill } from '@/components/ui/PriorityPill'
 import { StatusPill } from '@/components/ui/StatusPill'
 import { Timestamp } from '@/components/ui/Timestamp'
-import { getServiceRequest, type UserSummary } from '@/lib/api'
+import { getServiceRequest } from '@/lib/api'
 import { useAsyncData } from '@/lib/async'
+import { fullName } from '@/lib/names'
 
 /**
  * View Request Details (`/requests/:id`) — wired to
@@ -160,13 +161,4 @@ export default function RequestDetailsPage() {
       </div>
     </AppShell>
   )
-}
-
-/**
- * design.md §0 decision 4: `requestor` and `assignee` are structured objects,
- * never pre-formatted display strings like the prototype's 'Priya Nair — IT
- * Service Desk'. Joining them is the frontend's job, done here.
- */
-function fullName(user: UserSummary): string {
-  return `${user.first_name} ${user.last_name}`
 }

@@ -6,17 +6,23 @@ import { z } from 'zod'
  * permanent source of truth for these constraints — there is still no
  * openapi.yaml in the repo, and that forward-reference is retired.
  *
- *   - title       — non-empty, at most 100 characters
+ *   - title       — non-empty, at most 200 characters
  *   - description — non-empty, at most 1000 characters
  *   - priority    — one of low / medium / high
  *
- * **Both maxima are stricter than the API's, on purpose.** SR-8's ceiling is
+ * `title` matches SR-7's 200 exactly. It was 100 — a prototype-phase leftover
+ * (frontend-phase requirements.md §3) that the api-phase specs never retired —
+ * and T-DEBT-5 moved it, the spec decision the old value was standing in for.
+ * Unlike `description` there was never a two-tier design behind it: design.md
+ * §4 is explicit about the UX-cap-below-a-backstop split for `description` and
+ * silent on `title`, so a stricter client limit here was rejecting titles the
+ * API would have taken.
+ *
+ * `description` **is** deliberately stricter than the API's. SR-8's ceiling is
  * 10000 characters and design.md §4 names it an abuse backstop rather than the
  * intended limit, explicitly keeping the prototype's 1000-character UX cap.
- * SR-7's is 200 where this is 100 — the api-phase specs never retired the
- * prototype's 100 (frontend-phase requirements.md §3), so it stands until a
- * spec decision moves it. Neither is the false-guarantee hazard AUTH-16 had:
- * both limits are measured the same way on both sides, so anything this form
+ * Neither limit is the false-guarantee hazard AUTH-16 had: both are measured
+ * the same way on both sides (characters, not bytes), so anything this form
  * accepts the server accepts too. The server stays the authority on the
  * boundary; this is a UX limit sitting inside it.
  *
@@ -29,7 +35,7 @@ export const submitRequestSchema = z.object({
     .string()
     .trim()
     .min(1, 'Enter a title')
-    .max(100, 'Title must be 100 characters or fewer'),
+    .max(200, 'Title must be 200 characters or fewer'),
   description: z
     .string()
     .trim()

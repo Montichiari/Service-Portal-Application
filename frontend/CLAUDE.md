@@ -90,6 +90,9 @@ frontend/src/
                     # wrapper itself is module-private by design.
     async.ts         # Async<T> + useAsyncData (T-SR-1) — see Async state
     datetime.ts      # the one date formatter (T-SR-1)
+    names.ts         # the one UserSummary -> display name (T-DEBT-5);
+                    # was local to RequestDetailsPage until the admin
+                    # requestor column made the dashboard a second caller
   routes.tsx         # route table + cosmetic auth guard + catch-all.
                     # Built in T-DEBT-2 (it did NOT exist through the
                     # whole prototype phase and Group 1 — Task 3 was
