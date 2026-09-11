@@ -18,6 +18,7 @@ from app.api.middleware import register_middleware
 from app.api.routes.auth import router as auth_router
 from app.api.routes.comments import router as comments_router
 from app.api.routes.service_requests import router as service_requests_router
+from app.api.routes.status_changes import router as status_changes_router
 from app.api.routes.statuses import router as statuses_router
 from app.database import get_db
 
@@ -61,6 +62,8 @@ def create_app() -> FastAPI:
     # itself is a real route — registering the sub-resource first would put a
     # more general pattern ahead of a more specific one in the route table.
     app.include_router(comments_router, prefix=API_V1_PREFIX)
+    # The second sub-resource, mounted for the same reason and after it.
+    app.include_router(status_changes_router, prefix=API_V1_PREFIX)
     return app
 
 
