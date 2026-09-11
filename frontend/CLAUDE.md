@@ -62,7 +62,11 @@ frontend/src/
   components/
     ui/            # Button, TextInput, Select, Textarea, Card, Table,
                     # StatusPill, PriorityPill, Timeline, Field,
-                    # ErrorBanner, AsyncSection, Timestamp
+                    # ErrorBanner, AsyncSection, Timestamp, Pagination
+                    # (Pagination moved here from RequestsDashboardPage in
+                    # T-CM-1, when the comments thread became its second
+                    # caller — see Error surfacing's extract-on-second-
+                    # caller rule, which is not only about error UI)
     shell/          # AppShell, AuthShell
   pages/
     LoginPage.tsx
@@ -182,6 +186,17 @@ finding: the question is "was this response produced by a request I still
 care about?", answered at response handling, not at dispatch. Verified by
 removing it and watching a table show results contradicting its own
 filter controls.
+
+**After a successful write, append the server's response locally — don't
+refetch** (`T-CM-1`). A refetch returns the list to `pending` and
+`AsyncSection` replaces it with a loading line, so the user watches what
+they just submitted take the whole list away with it. What gets appended is
+the `201` body itself, so nothing is invented client-side. Key the local
+additions by whatever the fetch is keyed on (`T-CM-1` uses request *and*
+page): once that changes, the server's next response already accounts for
+them and keeping them shows them twice. `T-SC-1`'s "updates the stepper
+without a full reload" is the same shape — the answer is this, not a
+reload and not a second pending flash.
 
 **Two resources on one page get two `Async` values, never one shared
 pending flag.** The dashboard's request list and its `/statuses` filter
@@ -388,6 +403,28 @@ To simulate an expired session without waiting an hour, drop the
 
 Tests seed their own data — register a fresh user per run rather than
 depending on a hand-maintained account, which rots silently.
+
+**An `admin` comes from `promoteToAdmin` (`e2e/fixtures.ts`), never from a
+hand-promoted account.** There is no admin-promotion endpoint and
+deliberately none (`AUTH-4` ignores a `role` in the register body), so the
+helper runs the same `UPDATE users SET role = 'admin'` a person would, via
+`docker compose exec db psql` from the repo root. It works because
+`deps.py` re-reads `role` off the user row on every request rather than
+trusting the token's claim — so promote *before* signing the browser in
+(`AuthContext` caches what login returned) and it takes effect on the next
+request. Built in `T-CM-1`; `SR-2`, `CM-3` and `CM-8` had all been checked
+by hand against a manually promoted row until then. `registerViaApi` takes
+an optional name for the same reason — every seeded user being
+`Playwright Runner` would have let a column rendering the wrong person's
+name pass.
+
+**Asserting that something became visible is not asserting how.** `T-CM-1`'s
+"appends without a full page reload" criterion is invisible to a
+visibility assertion — a `window.location.reload()` after the POST ends
+with the comment on screen too. The spec sets a `window` sentinel before
+posting and re-reads it after; only a document navigation clears it.
+Whenever a criterion names a *mechanism* rather than an outcome, find the
+assertion that fails when the mechanism changes and the outcome doesn't.
 
 ## Non-goals for this phase
 

@@ -418,4 +418,160 @@ belongs alongside `CM-7`'s DOM-absence spec in Group 3.
 
 ---
 
-_(Groups 3 and 4 have not run yet — no entries here until they do.)_
+## Group 3 — Comments
+
+### T-CM-0
+
+**Complete.** 228 tests total (32 new comment tests + 1 new service-request
+test on top of the 195 baseline), mutation-tested — 13 deliberate defects,
+all caught for the right reason, clean tree asserted afterward. No
+migration needed — the `Comment` model already existed from the ORM
+phase, confirming `backend/CLAUDE.md`'s standing prediction for the whole
+API phase.
+
+**The load-bearing finding**: `CM-9` requires the `404` for an invisible
+parent to fire before `is_internal`/body are evaluated at all. FastAPI
+validates a declared request body during parameter binding, ahead of any
+code inside the handler — so a visibility check written as the handler's
+first statement runs _after_ that validation has already happened. A
+malformed body sent to an invisible parent then returns `422` instead of
+`404`, breaking `XC-7`'s guarantee that an invisible resource is
+indistinguishable regardless of what else is wrong with the request. The
+check has to be a `Depends()`, not a handler-body statement — that's the
+only thing that runs early enough to preempt it. Pinned by
+`test_create_404_precedes_body_validation`. Generalized into
+`backend/CLAUDE.md` as its own convention ("Visibility checks on nested
+resources") and folded into `T-SC-0`'s scope directly, since `SC-2`/`SC-8`
+have the identical shape.
+
+**One refactor, done proactively rather than deferred**:
+`_visibility_conditions`/`_parse_uuid`/`_load_visible` moved out of
+`service_requests.py` into a new `app/api/visibility.py`. `CM-4`/`CM-9`
+say "matching `SR-12`" explicitly, and a second copy of that predicate is
+exactly the shape where one copy gets tightened later and the other
+doesn't — the comment tests assert the two routes' `404` bodies are
+byte-identical to the parent route's, which only means something if
+there's one predicate to drift from. `T-SC-0` will import the same
+module for `SC-2`/`SC-8`.
+
+**Acceptance criteria, all confirmed**:
+
+- `CM-2`/`CM-3`: asserted against `response.text` (not parsed keys) so
+  serialization quirks can't hide a leak, and that `total` is `1` not
+  `2` — a row that's fetched then hidden by the response layer would
+  still inflate the count if the exclusion happened after counting
+- `CM-7`: the `403` envelope, `fields` absent (reserved for
+  `VALIDATION_ERROR` per `design.md §1`, so its presence here would
+  itself be a contract violation), and a `COUNT` of `0` after rollback
+- `CM-8`: parametrized over `true`/`false`, plus the omitted-defaults-
+  to-`false` case, checked against both the response and the stored row
+- `T-DEBT-4`'s two items: the service-request `401` coverage already
+  existed from `T-SR-0` — `T-DEBT-4`'s original text predates that
+  discovery, written on the assumption of a gap that turned out to be
+  already closed on one side. The comment-route equivalent was added.
+  The filtered-`total` test is new (`test_total_respects_filters_as_well_as_scope`)
+  — existing filter tests covered it only incidentally; this one
+  exercises scope and filter together, which is where a count bug that
+  only breaks on the combination would actually hide
+
+**Notes carried into `T-CM-1`'s scope directly** (not left here only):
+`CommentOut` carries `is_internal` on every row regardless of caller role
+(always `false` for a non-admin), so the frontend needs no second
+response shape — only the composer's checkbox is role-gated. Comments are
+ordered `created_at ASC`, the opposite of the dashboard's `SR-15` order —
+deliberate, not an inconsistency to fix.
+
+### T-CM-1
+
+**Complete.** 4 new Playwright specs (16 total, all green), each verified by
+removing the thing it names and watching it go red — 6 deliberate defects,
+all caught, all restored. `T-SR-1`'s `Async` pattern was reused unchanged;
+no second loading or empty-state shape was introduced.
+
+**An admin now exists in the e2e suite** (`promoteToAdmin` in
+`fixtures.ts`). Three of this phase's behaviours only appear for an
+`admin` — `SR-2`'s all-requests list, `CM-3`'s internal comments, `CM-8`'s
+internal composer — and until now every one of them had been checked by
+hand against a manually promoted account (`task-log.md#t-sr-1`,
+`#t-debt-5`). A hand-maintained account is exactly the fixture this suite
+refuses, so promotion is automated instead: `docker compose exec db psql`
+issuing the same `UPDATE users SET role = 'admin'` a person would. That
+this works at all is a property of `deps.py`, which re-reads `role` off
+the user row on every request rather than trusting the token's claim —
+promotion lands on the caller's very next request, so a test only has to
+promote before signing the browser in. The helper asserts `UPDATE 1`,
+because `UPDATE 0` is a *successful* psql command that changed nothing and
+would leave the admin tests passing as a regular user.
+
+`registerViaApi` gained an optional name, for the same reason: every
+seeded user was `Playwright Runner`, so a requestor column rendering the
+viewer's name instead of the row's would have matched either way. The
+regression test seeds `Ada Lovelace` and `Grace Hopper` and asserts
+neither row carries the admin viewer's own name — and the mutation pass
+confirmed it: with the column switched to `fullName(user)`, Ada's row read
+`Sam Supervisor`.
+
+**The no-reload criterion needed its own assertion, and the mutation pass
+proved it.** "Posting a comment appends it to the visible list without a
+full page reload" — asserting the comment becomes visible does not test
+that at all: a `window.location.reload()` after the POST also ends with
+the comment visible. The spec sets a `window` sentinel before posting and
+re-reads it afterwards, which only survives if the document did. Mutated
+both ways: dropping the append turned the visibility assertion red, and
+reloading instead turned the *sentinel* red while visibility stayed green.
+Same family as this project's recurring failure — a test that passes, and
+keeps passing, without the thing it names being true.
+
+**Posted comments are held locally rather than refetched.** A refetch
+returns the list to `pending`, and `AsyncSection` would replace the whole
+thread with a loading line — the user would watch what they just wrote
+take the conversation away with it. What is appended is the server's own
+`201` body, so nothing is invented client-side. The local list is keyed by
+request *and* page: after either changes, the server's response already
+accounts for those comments and keeping them would show them twice.
+
+**`Pagination` was extracted** from `RequestsDashboardPage` into
+`components/ui/Pagination.tsx`. `GET /service-requests/{id}/comments` is
+paginated (`CM-1`, `XC-10`), so a thread past 20 comments would otherwise
+have stopped dead with nothing indicating the rest existed — the exact gap
+`T-SR-1` closed for the dashboard. A second caller appearing is
+`frontend/CLAUDE.md`'s stated trigger to extract rather than copy, the
+same rule that produced `Field`, `ErrorBanner` and `names.ts`. The
+comments list renders it only when there is a second page; the dashboard
+still shows it unconditionally, because a table is a thing you page
+through and a three-comment thread under a disabled Previous button is
+noise. Verified live with a 22-comment thread: `Showing 1–20 of 22`, Next
+to `Showing 21–22 of 22`, Next then disabled. The dashboard's own
+pagination spec still passes unchanged.
+
+**Two judgement calls worth naming**:
+
+- The comments card is mounted *inside* the request's `ready` branch, so
+  the sub-resource is only asked for once its parent is known visible.
+  `CM-4` answers an invisible parent with the same `404` `SR-12` gives,
+  so firing both at once would put two error surfaces in a race to
+  explain one fact — and the not-found panel already says it properly.
+  The cost is one round trip of serialisation; `frontend/CLAUDE.md`'s
+  "two resources, two `Async` values" rule is about not sharing a pending
+  flag, which this doesn't.
+- The internal checkbox is laid out inline rather than through `Field`,
+  which stacks its label above the control. It is the app's only
+  checkbox; a `Checkbox` primitive extracts the moment there is a second,
+  the same reasoning that keeps `FilterField` local to the dashboard.
+
+**The one criterion no test can carry**: "renders keyed by real `id`, not
+array index". A React key is invisible in the DOM, so nothing a Playwright
+spec can assert distinguishes the two — confirmed by reading the code
+(`key={comment.id}`, `CommentItem`), not by a test. Making it observable
+would have meant inventing a DOM attribute for the test's benefit.
+
+**Checked at ~1280px and ~375px**, including the admin composer and the
+`Internal` badge, with no horizontal overflow at either. `CM-6`'s
+boundaries confirmed live through the form: empty rejected client-side,
+5001 characters rejected, 5000 accepted end-to-end.
+
+**Scope note for the Group 3 checkpoint**: comments have no edit or delete
+path, because the API has none (`design.md §6` defines only `GET` and
+`POST`). Nothing in the UI implies otherwise.
+
+_(Group 4 has not run yet — no entries here until they do.)_

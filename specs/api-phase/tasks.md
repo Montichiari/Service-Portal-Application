@@ -813,16 +813,18 @@ Report, then stop — `T-CM-0` is next.
 
 **Acceptance criteria**:
 
-- [ ] `CM-2`/`CM-3`: a `user`-role caller never receives an
+- [x] `CM-2`/`CM-3`: a `user`-role caller never receives an
       `is_internal: true` comment in the response body (check the raw
       JSON, not just what a UI would render)
-- [ ] `CM-7`: a `user`-role caller posting `is_internal: true` gets `403`
+- [x] `CM-7`: a `user`-role caller posting `is_internal: true` gets `403`
       and no row is created
-- [ ] `CM-8`: an `admin`-role caller can post with `is_internal: true`
-- [ ] `T-DEBT-4`: a `401`-when-unauthenticated test exists for each of
+- [x] `CM-8`: an `admin`-role caller can post with `is_internal: true`
+- [x] `T-DEBT-4`: a `401`-when-unauthenticated test exists for each of
       the three `/service-requests` routes and for both comment routes
-- [ ] `T-DEBT-4`: `total` on a _filtered_ list reflects the filters, not
+- [x] `T-DEBT-4`: `total` on a _filtered_ list reflects the filters, not
       just the visibility scope
+
+**Complete.** See `task-log.md#t-cm-0`.
 
 ### T-CM-1 — Frontend comment integration
 
@@ -835,19 +837,30 @@ admin-role users (`CM-7`/`CM-8`). Reuse `T-SR-1`'s loading and
 empty-state pattern (`src/lib/async.ts`, `AsyncSection` — see
 `frontend/CLAUDE.md`'s Async state section); do not invent a second one.
 
+`CommentOut` carries `is_internal` on every row, including a regular
+user's (always `false` there) — the response shape doesn't vary by
+caller role, so no second type or conditional parsing is needed; only
+the composer's checkbox is role-gated.
+
+Comments are ordered `created_at ASC` — oldest first, the opposite of
+the dashboard's `SR-15` order. This is deliberate (a conversation reads
+top-to-bottom, oldest-to-newest); don't "fix" it to match the dashboard.
+
 **Acceptance criteria**:
 
-- [ ] Comments list renders keyed by real `id`, not array index
+- [x] Comments list renders keyed by real `id`, not array index
       (closes `frontend-contract.md §6.4`)
-- [ ] A regular user never sees the internal-comment checkbox in the DOM
+- [x] A regular user never sees the internal-comment checkbox in the DOM
       (not just hidden via CSS — absent)
-- [ ] Requestor-column regression (T-DEBT-5 debt): two service requests
+- [x] Requestor-column regression (T-DEBT-5 debt): two service requests
       with two different requestors show two different names in the
       admin dashboard's Requestor column, not the viewer's own name
       repeated. Manually verified in T-DEBT-5; never captured as an
       automated test until now.
-- [ ] Posting a comment appends it to the visible list without a full
+- [x] Posting a comment appends it to the visible list without a full
       page reload
+
+**Complete.** See `task-log.md#t-cm-1`.
 
 **Group 3 checkpoint** before Group 4.
 
@@ -858,6 +871,14 @@ empty-state pattern (`src/lib/async.ts`, `AsyncSection` — see
 ### T-SC-0 — Backend status-change endpoints
 
 **Covers**: `SC-1` through `SC-8`.
+
+**Scope**: `SC-2`/`SC-8`'s parent-visibility check reuses
+`app/api/visibility.py` (`T-CM-0`) — never a second copy of `SR-12`'s
+predicate. Wire it as a `Depends()`, never as the first statement inside
+the handler body — see `backend/CLAUDE.md`'s "Visibility checks on
+nested resources." `T-CM-0` found this the hard way; write the
+equivalent of `test_create_404_precedes_body_validation` for this
+route's `POST`.
 
 **Acceptance criteria**:
 

@@ -321,6 +321,31 @@ and returns `422` instead of `SR-13`'s `404`. Accept the param as `str`,
 parse it in the handler, and treat a parse failure exactly like a miss.
 Assert the three responses are byte-identical, not merely same-status.
 
+### Visibility checks on nested resources
+
+Any route whose resource sits under a visibility-gated parent (comments
+and status-changes under a service request, per `CM-4`/`CM-9`,
+`SC-2`/`SC-8`) resolves that parent's visibility through the shared
+`app/api/visibility.py` module (`_visibility_conditions`/`_parse_uuid`/
+`_load_visible`, extracted in `T-CM-0` from `service_requests.py`) —
+never a second copy of the predicate. `SR-12`'s scoping logic is the
+single source of what "visible to this caller" means; every nested
+resource must match it byte-for-byte, since a route that quietly drifts
+from it either leaks a request to someone who shouldn't see it or hides
+one from someone who should.
+
+**Wire it as a dependency, never as the first statement in the handler
+body.** FastAPI validates a declared request body during parameter
+binding, ahead of any code inside the handler, regardless of what that
+code checks first. A visibility check placed as the handler's first line
+therefore runs _after_ body validation, so a malformed body sent to an
+invisible parent returns `422` instead of `404` — breaking `XC-7`'s
+guarantee that an invisible resource is indistinguishable regardless of
+what else is wrong with the request. Only a `Depends()`-resolved check
+runs early enough to preempt this. Found and pinned by a dedicated test
+in `T-CM-0` (`test_create_404_precedes_body_validation`) — write the
+equivalent for `T-SC-0`'s `POST` route, which has the identical shape.
+
 ## Testing
 
 Contract tests (R10, ORM phase) run against a real Postgres test database —
