@@ -132,6 +132,42 @@ export async function createRequestViaApi(
   return (await response.json()) as SeededRequest
 }
 
+/**
+ * Transition a request straight against the API, as whoever `request` is signed
+ * in as — which SC-4 requires to be an admin.
+ *
+ * The status is named rather than identified: ids are seeded per database, so a
+ * test that hardcoded one would pass only against the machine it was written
+ * on. `GET /statuses` is the authority on the mapping (ST-1 needs no session
+ * for it), which is the same reason the dashboard fetches its filter options
+ * rather than typing out four strings.
+ */
+export async function changeStatusViaApi(
+  request: APIRequestContext,
+  requestId: string,
+  statusName: 'open' | 'in_progress' | 'resolved' | 'closed',
+  note?: string,
+): Promise<void> {
+  const statuses = await request.get(`${API_BASE_URL}/api/v1/statuses`)
+  expect(statuses.status(), 'listing statuses').toBe(200)
+  const { items } = (await statuses.json()) as { items: { id: string; name: string }[] }
+
+  const target = items.find((status) => status.name === statusName)
+  // A seed that no longer carries this name would otherwise surface as a 422
+  // from the POST below, which reads like a broken endpoint rather than a
+  // broken fixture.
+  expect(target, `no seeded status named ${statusName}`).toBeDefined()
+
+  const response = await request.post(
+    `${API_BASE_URL}/api/v1/service-requests/${requestId}/status-changes`,
+    {
+      headers: { 'X-Requested-With': 'playwright' },
+      data: { status_id: target!.id, note },
+    },
+  )
+  expect(response.status(), `moving ${requestId} to ${statusName}`).toBe(201)
+}
+
 /** Repo root, from this file — where docker-compose.yml lives. */
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..')
 

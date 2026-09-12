@@ -408,6 +408,26 @@ export interface Page<T> {
   page_size: number
 }
 
+/**
+ * XC-10's paging params, shared by every paginated list below.
+ *
+ * One declaration rather than one per endpoint: the third identical copy would
+ * have been written for status changes (T-SC-1), and the omit-undefined rule in
+ * `queryString` is already generic over the query shape for the same reason.
+ */
+export interface PageQuery {
+  page?: number
+  page_size?: number
+}
+
+/**
+ * XC-11's ceiling. Exported because a caller that needs *every* row — the
+ * status stepper merges against the full history, not a page of it — has to
+ * ask for pages of the size the server will actually give, not the size it
+ * requested.
+ */
+export const MAX_PAGE_SIZE = 100
+
 // --- Statuses (design.md §3) -------------------------------------------------
 
 /**
@@ -444,9 +464,7 @@ export interface ServiceRequest {
 }
 
 /** `GET /service-requests`' query string (SR-3, SR-4, XC-10). */
-export interface ServiceRequestQuery {
-  page?: number
-  page_size?: number
+export interface ServiceRequestQuery extends PageQuery {
   /** A `name` from `getStatuses`, never a string typed out here (SR-3). */
   status?: StatusName
   priority?: Priority
@@ -531,12 +549,6 @@ export interface Comment {
   updated_at: string
 }
 
-/** `GET /service-requests/{id}/comments`' query string (XC-10). */
-export interface CommentQuery {
-  page?: number
-  page_size?: number
-}
-
 /**
  * CM-1 through CM-4. Ordered `created_at` **ascending** — oldest first, the
  * opposite of SR-15's newest-first list, because a conversation reads
@@ -549,7 +561,7 @@ export interface CommentQuery {
  */
 export function getComments(
   requestId: string,
-  query: CommentQuery = {},
+  query: PageQuery = {},
   signal?: AbortSignal,
 ): Promise<Page<Comment>> {
   return request<Page<Comment>>(
@@ -579,6 +591,76 @@ export function createComment(
 ): Promise<Comment> {
   return request<Comment>(
     `/service-requests/${encodeURIComponent(requestId)}/comments`,
+    { method: 'POST', body: input },
+  )
+}
+
+// --- Status changes (design.md §5) -------------------------------------------
+
+/**
+ * design.md §5's `StatusChange` — one transition that actually happened.
+ *
+ * There is no "pending" variant and `changed_at` is never null, because SC-3
+ * forbids the server synthesising a row for a status not yet reached. The
+ * stepper's hollow steps come from diffing this list against `getStatuses`, on
+ * this side of the wire (design.md §5 puts that merge here deliberately).
+ *
+ * `changed_by` is nullable to match the column's `ON DELETE SET NULL`: a
+ * transition made by a since-deleted user keeps its record and loses its actor.
+ */
+export interface StatusChange {
+  id: string
+  status: Status
+  changed_by: UserSummary | null
+  note: string | null
+  changed_at: string
+}
+
+/**
+ * SC-1 through SC-3. Ordered `changed_at` **ascending** — oldest first, like
+ * comments and unlike the dashboard, because this reads as a timeline.
+ *
+ * A request the caller cannot see answers `404` from the same place SR-12's
+ * comes from, so an invisible request's history is as invisible as the request.
+ */
+export function getStatusChanges(
+  requestId: string,
+  query: PageQuery = {},
+  signal?: AbortSignal,
+): Promise<Page<StatusChange>> {
+  return request<Page<StatusChange>>(
+    `/service-requests/${encodeURIComponent(requestId)}/status-changes${queryString(query)}`,
+    { signal },
+  )
+}
+
+/**
+ * SC-5's body.
+ *
+ * `status_id` is an id from `getStatuses`, not a name — the `statuses` table is
+ * the authority on which ones exist (SC-6 answers an unknown one with a `422`
+ * naming the field). `note` is optional with no enforced maximum (SC-7), and
+ * `changed_by` is the session's, so there is no field for it here.
+ */
+export interface CreateStatusChangeInput {
+  status_id: string
+  note?: string
+}
+
+/**
+ * SC-4 through SC-7. Admin only — a `user`-role caller who *can* see the
+ * request is refused `403`, and one who cannot gets SC-8's `404` instead, so
+ * both are worth surfacing rather than swallowing.
+ *
+ * The server also moves the parent's `current_status_id` in the same
+ * transaction (SC-5), which is why nothing here has to send that separately.
+ */
+export function createStatusChange(
+  requestId: string,
+  input: CreateStatusChangeInput,
+): Promise<StatusChange> {
+  return request<StatusChange>(
+    `/service-requests/${encodeURIComponent(requestId)}/status-changes`,
     { method: 'POST', body: input },
   )
 }
