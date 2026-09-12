@@ -192,7 +192,7 @@ refetch** (`T-CM-1`). A refetch returns the list to `pending` and
 `AsyncSection` replaces it with a loading line, so the user watches what
 they just submitted take the whole list away with it. What gets appended is
 the `201` body itself, so nothing is invented client-side. Key the local
-additions by whatever the fetch is keyed on (`T-CM-1` uses request *and*
+additions by whatever the fetch is keyed on (`T-CM-1` uses request _and_
 page): once that changes, the server's next response already accounts for
 them and keeping them shows them twice. `T-SC-1`'s "updates the stepper
 without a full reload" is the same shape — the answer is this, not a
@@ -329,12 +329,18 @@ validation error, surface `error.message` via `ErrorBanner`
 needed the same pattern. Import it; don't invent a second banner
 component.
 
-**If a task touches two pages that both need one of these patterns,
-extract (or confirm the existing extraction covers it) in that same
-task** — don't schedule the cleanup separately once you're already there.
-This is how `Field` and `ErrorBanner` both got made; it's also exactly
-the rule `SubmitRequestPage`'s local `Field` copy violated for a whole
-phase before `T-SR-1` closed it.
+**Extract any shared UI pattern — not just these two — the moment a
+second page needs it, in the same task that creates the second caller.**
+Don't schedule the cleanup separately once you're already there. Four
+components exist because of this rule so far: `Field` and `ErrorBanner`
+(`T-AUTH-5`/`T-SR-1`), `names.ts`'s `UserSummary`-to-display-name
+formatter (`T-DEBT-5`, once the admin requestor column made the dashboard
+a second caller alongside `RequestDetailsPage`), and `Pagination.tsx`
+(`T-CM-1`, once the comments thread needed paging alongside the
+dashboard). It's also exactly the rule `SubmitRequestPage`'s local
+`Field` copy violated for a whole phase before `T-SR-1` closed it —
+satisfying the rule's letter once isn't the same as satisfying its
+purpose everywhere it applies.
 
 ## Naming
 
@@ -342,7 +348,7 @@ PascalCase components, camelCase functions/variables, one component per
 file, filename matches component name.
 
 **Exception, decided during `T-AUTH-0` review**: zod schemas and TS types
-that mirror an API request or response body directly use **snake_case**
+that mirror an API request or response body directly use `snake_case`
 field names, matching the wire format exactly (`first_name`, `last_name`)
 — no translation layer at the `api.ts` boundary. Everything else (local
 component state, function names, non-API-shaped props) stays camelCase per
@@ -410,7 +416,7 @@ deliberately none (`AUTH-4` ignores a `role` in the register body), so the
 helper runs the same `UPDATE users SET role = 'admin'` a person would, via
 `docker compose exec db psql` from the repo root. It works because
 `deps.py` re-reads `role` off the user row on every request rather than
-trusting the token's claim — so promote *before* signing the browser in
+trusting the token's claim — so promote _before_ signing the browser in
 (`AuthContext` caches what login returned) and it takes effect on the next
 request. Built in `T-CM-1`; `SR-2`, `CM-3` and `CM-8` had all been checked
 by hand against a manually promoted row until then. `registerViaApi` takes
@@ -423,7 +429,7 @@ name pass.
 visibility assertion — a `window.location.reload()` after the POST ends
 with the comment on screen too. The spec sets a `window` sentinel before
 posting and re-reads it after; only a document navigation clears it.
-Whenever a criterion names a *mechanism* rather than an outcome, find the
+Whenever a criterion names a _mechanism_ rather than an outcome, find the
 assertion that fails when the mechanism changes and the outcome doesn't.
 
 ## Non-goals for this phase

@@ -335,7 +335,7 @@ starting):
   uppercase/digit/symbol). This was decided deliberately during spec
   review, not left unspecified — don't add a composition regex "to be
   thorough"; that's reintroducing a rule that was considered and rejected,
-  not filling a gap. For a max: `AUTH-16`'s real limit is 72 `_bytes_`, not
+  not filling a gap. For a max: `AUTH-16`'s real limit is 72 _bytes_, not
   characters, so a client-side `.max(72)` on string length is a false
   guarantee (an emoji-heavy password can clear that char count and still
   fail server-side). Either measure bytes client-side too (`new
@@ -882,19 +882,27 @@ route's `POST`.
 
 **Acceptance criteria**:
 
-- [ ] `SC-3`: response contains only real `status_history` rows — write a
+- [x] `SC-3`: response contains only real `status_history` rows — write a
       test asserting the count equals actual transitions made, never a
       fixed number. Note `SR-14` means a freshly created request already
       has exactly one row (`open`), so the baseline is one, not zero
-- [ ] `SC-4`: a `user`-role caller `POST`ing a status change gets `403`
-- [ ] `SC-5`/`SC-6`: the history-insert and `current_status_id`-update
+- [x] `SC-4`: a `user`-role caller `POST`ing a status change gets `403`
+      — **only when the parent is visible to them.** `SC-4` and `SC-8`
+      conflict for a `user`-role caller with no visibility into the
+      parent; visibility is resolved first (see `backend/CLAUDE.md`'s
+      "Visibility checks on nested resources"), so that overlapping case
+      answers `404`, not `403`. `SC-4` governs a user posting to a
+      request they can see — their own.
+- [x] `SC-5`/`SC-6`: the history-insert and `current_status_id`-update
       happen atomically — test by forcing a failure mid-transaction (e.g.
       an invalid `status_id` after a valid one in sequence) and asserting
       neither write landed, matching `backend/CLAUDE.md`'s testing
       convention of proving a test can actually fail
-- [ ] `SR-14`'s invariant still holds after a transition:
+- [x] `SR-14`'s invariant still holds after a transition:
       `current_status_id` equals the status of the most recent
       `status_history` row, always
+
+**Complete.** See `task-log.md#t-sc-0`.
 
 ### T-SC-1 — Frontend status history integration
 
@@ -923,6 +931,13 @@ vocabulary, grep for its literal string values across the whole tree, not
 just typed usages** — `T-SR-1` found a retired status name surviving as
 an untyped string in `src/lib/utils.ts`'s tailwind-merge class-group
 config, invisible to a TypeScript usages search (`task-log.md#t-sr-1`).
+
+`RequestStatusPage`'s status-history fetch faces the same question
+`T-CM-1` answered for comments: `SC-2`'s visibility predicate is
+`SR-12`'s, so mount the status-history fetch only once the parent
+request's own fetch is `ready` — firing both in parallel risks two
+independent 404 surfaces explaining one underlying fact. See
+`task-log.md#t-cm-1` for the reasoning.
 
 `RequestStatusPage`'s heading currently shows the request id alone, with
 no title — `T-SR-1` deliberately dropped it rather than fetch real

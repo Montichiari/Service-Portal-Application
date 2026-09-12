@@ -346,6 +346,24 @@ runs early enough to preempt this. Found and pinned by a dedicated test
 in `T-CM-0` (`test_create_404_precedes_body_validation`) — write the
 equivalent for `T-SC-0`'s `POST` route, which has the identical shape.
 
+**The same precedence applies against a role check, not only against body
+validation.** `T-SC-0` hit a genuine conflict: `SC-4` says a `user`-role
+caller posting a status change gets `403`; `SC-8` says an invisible
+parent gets `404`. For a `user`-role caller posting to a parent they
+can't see, both apply and only one status can be sent. Keep the
+visibility dependency ordered ahead of the role gate, so that overlapping
+case answers `404`, not `403` — a `403` there would itself confirm the
+resource exists, which is exactly the leak `XC-7` exists to close.
+`SC-4`'s `403` still governs its own case: a `user`-role caller posting
+to a request they genuinely can see. The general rule this generalizes
+to: **visibility is ordered ahead of every check that could leak a
+resource's existence, not just body validation — role gates are one
+instance of that, not the whole list, and a future nested resource may
+introduce another.** Pinned by
+`test_user_posting_to_an_invisible_parent_gets_the_visibility_answer` —
+worth knowing this is currently the only test protecting the ordering,
+since swapping the two dependencies breaks nothing else.
+
 ## Testing
 
 Contract tests (R10, ORM phase) run against a real Postgres test database —
@@ -412,6 +430,31 @@ small, which is the same failure family as everything above. Measure the
 same endpoint at two different row counts (3 and 15) and assert the
 counts are _equal_. Count via a `before_cursor_execute` event listener.
 
+**Fixture data feeding an atomicity or rollback assertion needs to be
+committed independently, not created inside the same rollback machinery
+the assertion is observing.** A parent row inserted directly via a
+fixture lives in the test's own savepoint — the same one a sabotaged
+write's failure unwinds — so "did nothing change" can pass vacuously
+regardless of whether the code's atomicity logic works, since there's no
+way to tell a correctly-scoped rollback from the whole test tearing down
+anyway. Create that parent through the real API instead, so it's a real,
+independently persisted base state the sabotaged write can fail against.
+Found in `T-SC-0`'s two `SC-5`/`SC-6` atomicity tests, and the two are
+complementary rather than redundant: sabotaging the history insert only
+catches a handler that commits the parent update first, and sabotaging
+the parent update only catches the mirror image — neither alone is
+sufficient.
+
+**A "shape"/contract test that seeds its own fixture directly, rather
+than posting through the endpoint, can only prove serialization — never
+that the write path populating those fields is correct.** Found when
+`T-SC-0`'s mutation pass set `changed_by_id=None`: the dedicated shape
+test stayed green because it never exercised the create endpoint at all.
+Two other tests caught the mutation, so the suite held — but that
+specific test's coverage of the field was always illusory. If a test is
+meant to validate a response contract for data the endpoint itself
+writes, create that data through the endpoint.
+
 ### Mutation passes
 
 A mutation pass edits the working tree, so it needs a mechanical
@@ -426,6 +469,14 @@ rather than a control. Two rules:
   pass was looking for.
 - Never pipe a long harness run through a truncating command; write the
   output to a file and read the file.
+
+**A mutation that fails to compile or import isn't a caught mutation** —
+it hasn't tested anything about the suite, only confirmed Python's own
+syntax checker works. Stripping a `Depends()` parameter can easily leave
+a non-default parameter after a defaulted one, which is a `SyntaxError`,
+not a semantic change. If applying a mutation produces invalid code, fix
+it into valid code and re-verify it's caught by the right tests for a
+semantic reason before counting it. Found in `T-SC-0`.
 
 ### API-phase additions
 

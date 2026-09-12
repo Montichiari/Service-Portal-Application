@@ -500,7 +500,7 @@ this works at all is a property of `deps.py`, which re-reads `role` off
 the user row on every request rather than trusting the token's claim —
 promotion lands on the caller's very next request, so a test only has to
 promote before signing the browser in. The helper asserts `UPDATE 1`,
-because `UPDATE 0` is a *successful* psql command that changed nothing and
+because `UPDATE 0` is a _successful_ psql command that changed nothing and
 would leave the admin tests passing as a regular user.
 
 `registerViaApi` gained an optional name, for the same reason: every
@@ -518,7 +518,7 @@ that at all: a `window.location.reload()` after the POST also ends with
 the comment visible. The spec sets a `window` sentinel before posting and
 re-reads it afterwards, which only survives if the document did. Mutated
 both ways: dropping the append turned the visibility assertion red, and
-reloading instead turned the *sentinel* red while visibility stayed green.
+reloading instead turned the _sentinel_ red while visibility stayed green.
 Same family as this project's recurring failure — a test that passes, and
 keeps passing, without the thing it names being true.
 
@@ -527,7 +527,7 @@ returns the list to `pending`, and `AsyncSection` would replace the whole
 thread with a loading line — the user would watch what they just wrote
 take the conversation away with it. What is appended is the server's own
 `201` body, so nothing is invented client-side. The local list is keyed by
-request *and* page: after either changes, the server's response already
+request _and_ page: after either changes, the server's response already
 accounts for those comments and keeping them would show them twice.
 
 **`Pagination` was extracted** from `RequestsDashboardPage` into
@@ -546,7 +546,7 @@ pagination spec still passes unchanged.
 
 **Two judgement calls worth naming**:
 
-- The comments card is mounted *inside* the request's `ready` branch, so
+- The comments card is mounted _inside_ the request's `ready` branch, so
   the sub-resource is only asked for once its parent is known visible.
   `CM-4` answers an invisible parent with the same `404` `SR-12` gives,
   so firing both at once would put two error surfaces in a race to
@@ -574,4 +574,77 @@ boundaries confirmed live through the form: empty rejected client-side,
 path, because the API has none (`design.md §6` defines only `GET` and
 `POST`). Nothing in the UI implies otherwise.
 
-_(Group 4 has not run yet — no entries here until they do.)_
+---
+
+## Group 4 — Status history
+
+### T-SC-0
+
+**Complete.** 267 tests total (39 new), mutation-tested — 13 deliberate
+defects, all caught, applied as revertible patches with a clean tree
+verified afterward. No model changed, no migration needed — confirming
+`backend/CLAUDE.md`'s standing prediction once more. Visibility reuses
+`app/api/visibility.py`'s shared predicate (`T-CM-0`) — no second copy of
+`SR-12`'s logic.
+
+**The load-bearing decision**: `SC-4` and `SC-8` genuinely conflict for a
+`user`-role caller with no visibility into the parent request — `SC-4`
+says `403`, `SC-8` says `404`, and only one status can be sent. Resolved
+by declaring the visibility dependency before the role gate, so that
+overlapping case answers `404`. Three reasons, all pointing the same way:
+`SC-8` names this exact case; it keeps the route's `404`s byte-identical
+to `SR-12`'s; and a `403` there would itself leak that the request
+exists, which is precisely what `XC-7` exists to prevent. `SC-4`'s own
+case — a user posting to a request they _can_ see — still answers `403`
+once visibility passes. This generalizes `T-CM-0`'s `CM-9` finding one
+step further: visibility isn't just ordered ahead of body validation, it
+has to run ahead of every other check that could leak the resource's
+existence, role checks included. Pinned by
+`test_user_posting_to_an_invisible_parent_gets_the_visibility_answer` —
+swapping the two dependencies' order breaks nothing else, so this is the
+only test protecting the decision. Generalized into `backend/CLAUDE.md`'s
+"Visibility checks on nested resources."
+
+**Two mutations caught for a different reason than predicted**:
+
+- `M9` (removing the list route's auth gate) didn't initially produce a
+  valid mutation — a non-default parameter ended up after a defaulted
+  one, a Python syntax error, not a semantic one. Fixed into a valid
+  mutation and re-verified it was then caught by the right tests (the
+  `401` test and three visibility tests going red) rather than counting
+  the compile failure itself as a catch. A mutation that can't run
+  doesn't test anything about the suite.
+- `M13` (`changed_by_id=None`) left `test_status_change_shape_matches_the_contract`
+  green, because that test seeds its row directly rather than posting
+  through the endpoint — it validates serialization, not the write path
+  that populates the field. Two other tests caught the mutation, so the
+  suite as a whole is fine, but the shape test's own coverage of that
+  field is illusory. A "shape"/contract test that seeds its fixture
+  directly can only prove the response serializes correctly, never that
+  the write logic populating it is correct.
+
+**A fifth instance of the project's recurring "passes without the thing
+it names being true" pattern**, and a new mechanism: the two atomicity
+tests both create their parent through the real API rather than a raw
+fixture insert. A fixture row created directly lives inside the test's
+own rollback savepoint — the same one the sabotaged write's failure
+would also unwind — so asserting "nothing changed" afterward can pass
+vacuously regardless of whether the code's atomicity logic works, because
+there's no way to distinguish a correctly-scoped rollback from the whole
+test's teardown rolling everything back anyway. Creating the parent
+through the API commits it independently, so the later sabotaged write
+has a real, persisted base state to fail against. The two atomicity
+tests are also complementary, not redundant: sabotaging the history
+insert only catches a handler that commits the parent update first, and
+sabotaging the parent update only catches the mirror image — neither
+alone is sufficient.
+
+**Naming note**: this task's own report referred to the shared visibility
+lookup as `get_visible_parent_request`, where prior entries in this log
+and `backend/CLAUDE.md` name it `_load_visible`. Not reconciled here —
+worth confirming against the actual function name in
+`app/api/visibility.py` before the next task that touches it, and
+correcting whichever side is stale.
+
+_(No further groups — this closes Group 4's backend half. `T-SC-1` is
+the frontend half and the final task of the phase.)_
