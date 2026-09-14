@@ -17,6 +17,7 @@ from app.api.errors import register_exception_handlers
 from app.api.middleware import register_middleware
 from app.api.openapi import use_corrected_openapi
 from app.api.routes.auth import router as auth_router
+from app.api.routes.chat import router as chat_router
 from app.api.routes.comments import router as comments_router
 from app.api.routes.service_requests import router as service_requests_router
 from app.api.routes.status_changes import router as status_changes_router
@@ -92,6 +93,11 @@ def create_app() -> FastAPI:
     app.include_router(comments_router, prefix=API_V1_PREFIX)
     # The second sub-resource, mounted for the same reason and after it.
     app.include_router(status_changes_router, prefix=API_V1_PREFIX)
+    # Its own resource family, unrelated to the three above: no path
+    # parameters, and its two routes address the caller's own conversation
+    # (specs/chatbot/design.md §8), so ordering against the service-request
+    # routes cannot matter either way.
+    app.include_router(chat_router, prefix=API_V1_PREFIX)
     # Last, because it introspects the mounted routes to document the auth,
     # CSRF and error-envelope behaviour that lives in the wiring above rather
     # than in any route signature (T-DOCS-0). Documentation only — it reads the

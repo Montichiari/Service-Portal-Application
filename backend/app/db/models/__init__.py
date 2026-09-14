@@ -15,6 +15,8 @@ from app.db.models.service_request import ServiceRequest
 from app.db.models.status_history import StatusHistory
 from app.db.models.comment import Comment
 from app.db.models.refresh_token import RefreshToken
+from app.db.models.chat_conversation import ChatConversation
+from app.db.models.chat_message import ChatMessage
 
 __all__ = [
     "User",
@@ -23,4 +25,6 @@ __all__ = [
     "StatusHistory",
     "Comment",
     "RefreshToken",
+    "ChatConversation",
+    "ChatMessage",
 ]

@@ -89,7 +89,8 @@ def test_the_document_describes_every_route(spec, route_facts):
     """A guard on every other test here: an empty sweep proves nothing."""
     documented = {(path, method) for path, method, _ in _operations(spec)}
     assert documented == set(route_facts)
-    assert len(documented) == 15
+    # 15 through T-DOCS-0, plus the two chat routes T-CHAT-0 added.
+    assert len(documented) == 17
 
 
 # --- The 422 shape (the headline correction) ---------------------------------
@@ -103,8 +104,10 @@ def test_every_documented_422_is_the_error_envelope(spec):
         if "422" in operation["responses"]
     ]
     # Non-vacuous on purpose: if a future change stopped generating 422s at
-    # all, every assertion in the loop would pass by not running.
-    assert len(documented) == 8
+    # all, every assertion in the loop would pass by not running. 8 through
+    # T-DOCS-0; `POST /chat/messages` (a body) and `GET /chat/messages`
+    # (paging params) are T-CHAT-0's two.
+    assert len(documented) == 10
 
     for path, method, operation in _operations(spec):
         response = operation["responses"].get("422")
@@ -164,7 +167,8 @@ def test_a_route_that_cannot_fail_validation_documents_no_422(spec):
 
 def test_every_authenticated_route_documents_401(spec, route_facts):
     authenticated = [key for key, f in route_facts.items() if f["authenticated"]]
-    assert len(authenticated) == 8
+    # 8 through T-DOCS-0, plus both of T-CHAT-0's chat routes (CHAT-13).
+    assert len(authenticated) == 10
     for path, method in authenticated:
         response = spec["paths"][path][method]["responses"].get("401")
         assert response is not None, f"{method.upper()} {path}"
@@ -191,7 +195,8 @@ def test_no_unauthenticated_route_claims_a_401(spec, route_facts):
 
 def test_every_write_documents_403_and_requires_the_csrf_header(spec, route_facts):
     writes = [key for key, f in route_facts.items() if f["state_changing"]]
-    assert len(writes) == 7
+    # 7 through T-DOCS-0, plus `POST /chat/messages`.
+    assert len(writes) == 8
     for path, method in writes:
         operation = spec["paths"][path][method]
         assert operation["responses"]["403"]["content"] == ENVELOPE_CONTENT

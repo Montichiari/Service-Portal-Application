@@ -591,7 +591,7 @@
           "service-requests"
         ],
         "summary": "File a service request",
-        "description": "File a request on behalf of the caller (SR-6 to SR-10, SR-14).\n\nThree of the row's columns are never read from the body (SR-10 / XC-8):\n``requestor_id`` is the authenticated user, ``request_type`` is\n``'general'``, and ``current_status_id`` is whatever ``'open'``'s id is.\nThe schema has no fields for them, so a body supplying all three is\naccepted and creates exactly the same row as one that doesn't — which is\nXC-8's actual requirement, and the reason the schema ignores unknown keys\nrather than rejecting them.",
+        "description": "File a request on behalf of the caller (SR-6 to SR-10, SR-14).\n\nThe insert itself lives in ``app/services/service_requests.py``, because the\nchat assistant's ``create_service_request`` tool files requests through the\nsame operation (specs/chatbot/design.md §4). What stays here is the part\nthat is about HTTP: the validated body, the authenticated caller, the 201,\nand the response model.\n\nThree of the row's columns are never read from the body (SR-10 / XC-8) —\nsee the service function, which is where that guarantee is now made.",
         "operationId": "create_service_request_api_v1_service_requests_post",
         "requestBody": {
           "required": true,
@@ -1156,10 +1156,243 @@
           }
         ]
       }
+    },
+    "/api/v1/chat/messages": {
+      "get": {
+        "tags": [
+          "chat"
+        ],
+        "summary": "Reload the caller's conversation history",
+        "description": "The caller's conversation, oldest first (CHAT-2, CHAT-10, XC-10, XC-11).\n\nScoped by a join to the caller's conversation in the ``WHERE`` clause, in\nboth the count and the page — the rule every list endpoint here follows.\nIt reads as belt-and-braces given that the subquery can only ever match one\nconversation, and it is written this way anyway: the alternative is\nfiltering after the fetch, which is the habit that eventually meets a\nresource where it does matter.\n\nA user who has never sent a message has no conversation row at all — first\n``POST`` creates it (CHAT-1) — so this answers an empty page rather than a\n404. Nothing is missing; there is simply nothing yet.\n\nOrdering is ``created_at`` then ``id``, the total order CHAT-10 needs so a\n``tool_result`` cannot come back ahead of the ``tool_use`` it answers. See\n``ChatMessage.created_at`` for why the column defaults to\n``clock_timestamp()``.",
+        "operationId": "list_chat_messages_api_v1_chat_messages_get",
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1,
+              "title": "Page"
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 20,
+              "title": "Page Size"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_ChatMessageOut_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Returned when one or more supplied fields are invalid (XC-4).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Returned when the `access_token` cookie is absent, expired, or no longer names an active user — no distinction is drawn between those cases (XC-5).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Returned when the request failed for a reason the API does not attribute to the caller — `message` never carries internal detail and the traceback is logged server-side (XC-14).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "accessTokenCookie": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "chat"
+        ],
+        "summary": "Send a message to the assistant and get its reply",
+        "description": "Run one exchange and return the assistant's final text (design.md §3).\n\n``200``, not the ``201`` the other writes here return. Rows are certainly\ncreated, but nothing in this response is a created resource: the body is\nthe assistant's reply, there is no id to hand back, and no URL addresses\nwhat was written (§8 gives the conversation no id of its own). A ``201``\nwould promise a location that does not exist.\n\nSynchronous, so the request is held open for the whole call-execute-reply\nloop and the widget shows a pending state meanwhile (design.md §9).\nStreaming is a deliberate later improvement rather than an oversight —\nbuilding it alongside tool calling would mix two new mechanisms in one\npass.\n\n``client`` is a dependency rather than something constructed here, which is\nwhat lets the tests drive this route with fixed model payloads and what\nwill let T-CHAT-1 wire the real one in without touching this handler.",
+        "operationId": "send_chat_message_api_v1_chat_messages_post",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatMessageCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatReply"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Returned when one or more supplied fields are invalid (XC-4).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Returned when the `access_token` cookie is absent, expired, or no longer names an active user — no distinction is drawn between those cases (XC-5).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Returned when the `X-Requested-With` header is missing, which middleware refuses before routing (XC-9).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Returned when the request failed for a reason the API does not attribute to the caller — `message` never carries internal detail and the traceback is logged server-side (XC-14).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "accessTokenCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-Requested-With",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Requested-With",
+              "default": "XMLHttpRequest"
+            },
+            "description": "CSRF guard (XC-9). Any non-empty value. Enforced by middleware before routing, so a request without it is answered `403` without its body or its cookies being read — which is why it is absent from this operation's handler signature."
+          }
+        ]
+      }
     }
   },
   "components": {
     "schemas": {
+      "ChatMessageCreate": {
+        "properties": {
+          "message": {
+            "type": "string",
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "message"
+        ],
+        "title": "ChatMessageCreate",
+        "description": "``POST /chat/messages`` body."
+      },
+      "ChatMessageOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "role": {
+            "type": "string",
+            "title": "Role"
+          },
+          "content": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Content"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "role",
+          "content",
+          "created_at"
+        ],
+        "title": "ChatMessageOut",
+        "description": "One stored message, blocks and all (CHAT-10)."
+      },
+      "ChatReply": {
+        "properties": {
+          "reply": {
+            "type": "string",
+            "title": "Reply"
+          }
+        },
+        "type": "object",
+        "required": [
+          "reply"
+        ],
+        "title": "ChatReply",
+        "description": "``POST /chat/messages`` response — the final assistant text, and no more.\n\ndesign.md §3 step 8: the tool calls, their results and the intermediate\nturns are all persisted and all readable through ``GET /chat/messages``, but\nwhat the widget shows is the answer. Returning the raw block array here\nwould make the frontend responsible for knowing which blocks are machinery."
+      },
       "CommentCreate": {
         "properties": {
           "body": {
@@ -1240,6 +1473,37 @@
         ],
         "title": "LoginRequest",
         "description": "``POST /auth/login`` body (AUTH-6, AUTH-7)."
+      },
+      "Page_ChatMessageOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ChatMessageOut"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "page": {
+            "type": "integer",
+            "title": "Page"
+          },
+          "page_size": {
+            "type": "integer",
+            "title": "Page Size"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "page",
+          "page_size"
+        ],
+        "title": "Page[ChatMessageOut]"
       },
       "Page_CommentOut_": {
         "properties": {

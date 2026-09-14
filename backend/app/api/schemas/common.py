@@ -13,7 +13,7 @@ from typing import Annotated, Generic, TypeVar
 from pydantic import BaseModel, PlainSerializer
 
 
-def _as_utc_iso8601(value: datetime) -> str:
+def as_utc_iso8601(value: datetime) -> str:
     """Render a timestamp the way XC-2 requires: ISO 8601, UTC, explicit offset.
 
     Pydantic's own datetime serializer emits whatever offset the value carries,
@@ -33,7 +33,14 @@ def _as_utc_iso8601(value: datetime) -> str:
     return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
-UTCDateTime = Annotated[datetime, PlainSerializer(_as_utc_iso8601, return_type=str)]
+# Public rather than module-private since T-CHAT-0: the chat assistant's
+# `get_request_status` tool renders timestamps into a `tool_result` block
+# rather than through a response model, and text the model reads back to a user
+# should carry the same instant in the same format the API sends everywhere
+# else.
+
+
+UTCDateTime = Annotated[datetime, PlainSerializer(as_utc_iso8601, return_type=str)]
 """A ``datetime`` response field rendered per XC-2."""
 
 

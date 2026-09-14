@@ -64,3 +64,16 @@ class User(UUIDPkMixin, TimestampMixin, Base):
         back_populates="changed_by",
         foreign_keys="StatusHistory.changed_by_id",
     )
+    # One-to-one, not a list: `chat_conversations.user_id` is UNIQUE, so a user
+    # has at most one conversation (specs/chatbot/design.md §6, decision 2).
+    # `uselist=False` is what makes the attribute reflect that constraint —
+    # without it SQLAlchemy infers a collection from the FK alone and the
+    # mapping would quietly disagree with the schema.
+    chat_conversation: Mapped["ChatConversation | None"] = relationship(
+        "ChatConversation",
+        back_populates="user",
+        uselist=False,
+        # chat_conversations.user_id is ON DELETE CASCADE — let the DB cascade
+        # rather than SQLAlchemy pre-emitting its own DELETEs.
+        passive_deletes=True,
+    )

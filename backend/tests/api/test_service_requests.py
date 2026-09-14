@@ -25,7 +25,7 @@ import pytest
 from sqlalchemy import event, select
 from sqlalchemy.engine import Engine
 
-from app.api.routes import service_requests as service_requests_module
+from app.services import service_requests as service_requests_service
 from app.db.models import ServiceRequest, Status, StatusHistory
 
 LIST = "/api/v1/service-requests"
@@ -587,8 +587,13 @@ def test_create_writes_nothing_when_the_history_insert_fails(
         # would, rather than before any SQL has been emitted.
         return StatusHistory(**{**kwargs, "status_id": uuid.uuid4()})
 
+    # Patched on the *service* module since T-CHAT-0: the insert this test
+    # sabotages moved to `app/services/service_requests.py` when the chat
+    # assistant's `create_service_request` tool became its second caller. The
+    # route still owns the 201 and the response model; the transaction SR-14 is
+    # about is now one layer down, and so is the name to patch.
     monkeypatch.setattr(
-        service_requests_module, "StatusHistory", _sabotaged_history
+        service_requests_service, "StatusHistory", _sabotaged_history
     )
 
     response = client_for(owner, raise_server_exceptions=False).post(
