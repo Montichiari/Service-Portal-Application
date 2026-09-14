@@ -747,3 +747,121 @@ UI, the Phase 5 chatbot) actually needs one of them, and not before.
 `tasks.md` to Scope and Acceptance criteria, without further
 intervention — including this task, which correctly deferred the
 close-out rather than guessing at conventions from a stale read.
+
+---
+
+## Phase 5 — Chat (`specs/chatbot/`)
+
+`tasks.md` for this phase lives in `specs/chatbot/`, but its
+retrospectives belong here, alongside every other group — one running
+project history rather than a second log file per spec folder.
+
+### T-CHAT-0
+
+**Complete.** 51 new tests (28 endpoint, 16 pure-unit, 7 schema
+contract); 344 pass overall, of which the 293 pre-existing ones were
+untouched apart from the three noted below. 12 deliberate defects
+applied and all 12 caught, per `backend/CLAUDE.md`'s "verify it can
+fail" rule. The live Anthropic call is stubbed throughout, as this
+task's scope requires — no `ANTHROPIC_API_KEY` exists or is read
+anywhere in the code this task added.
+
+**A service layer appeared, because the tool needed the endpoint's
+logic and not a copy of it.** `tasks.md` asks tool execution to call
+"the existing service-layer function"; there wasn't one — the insert
+lived in the `POST /service-requests` handler. It moved to
+`app/services/service_requests.py`, and the route now calls it. The
+alternative (the chat tool importing a route module to reach the
+handler) was rejected for the reason `visibility.py`'s docstring
+already records: route modules importing each other is how their
+ordering starts to matter. Scope is narrow on purpose — a function
+moves here when a second caller appears, not in anticipation of one,
+and the read endpoints were left exactly where they are.
+
+**`clock_timestamp()`, not `now()`, on `chat_messages.created_at` —
+the one real defect this task would otherwise have shipped.**
+`design.md §6` specifies a `created_at` column and says nothing about
+its default, and every other table in this schema defaults to `now()`.
+But `now()` is `transaction_timestamp()`: it does not advance inside a
+transaction, and this is the only table that appends four rows per unit
+of work (user text → `tool_use` → `tool_result` → reply). Under
+`now()`, all four share a timestamp, `ORDER BY created_at` falls
+through to a random-UUID tiebreaker, and CHAT-10's "in order" can
+return a `tool_result` ahead of the `tool_use` it answers — which the
+Messages API rejects on replay, so the failure would have surfaced in
+`T-CHAT-1` as an unexplainable 400 from Anthropic rather than as a
+local ordering bug. Worse, it was invisible under test for a second
+reason: the API suite runs each test in one transaction, so *every*
+chat row would have shared a timestamp there. Verified the hard way —
+the mutation pass drops and re-migrates the test database around the
+edit, because a default only changes behaviour in a schema that was
+actually built with it.
+
+**CHAT-1's guarantee is the UNIQUE constraint, not the get-or-create.**
+The first version of that mutation — deleting the "does one already
+exist" check so the function only ever inserts — was *missed* by the
+test suite, and correctly so: the second insert fails on
+`uq_chat_conversations_user_id`, the `IntegrityError` branch re-reads
+the winner's row, and the endpoint behaves identically. Sharpened the
+mutation to remove the recovery as well (then it was caught), and kept
+the finding: the pre-check is an optimisation, the constraint is the
+requirement, and `test_a_user_cannot_have_two_conversations` in
+`tests/db/` is what actually pins it.
+
+**The tool's `input_schema` is derived from `ServiceRequestCreate`, not
+transcribed from it.** A hand-written copy validates against itself
+while drifting from the schema that decides whether the create
+succeeds, and the resulting failure is one-sided and quiet: the model
+omits a field it was never told about, every create comes back
+`is_error`, and nothing in the API's own tests changes. Only the
+per-argument descriptions are layered on top — they are prompt copy and
+have no business in the published OpenAPI document.
+
+**Decision 4 (FAQ size) was closed mechanically rather than answered.**
+`design.md §7` says to switch from inlining to the `search_faq` tool
+once the FAQ passes roughly 15–20 entries. `search_faq_is_enabled()`
+derives that from `len(FAQ_ENTRIES)` against a named `INLINE_LIMIT`, so
+adding the sixteenth entry moves the FAQ out of the system prompt and
+the tool into the model's tool list in the same commit that adds it.
+Both halves of the switch read the same predicate, so they cannot end
+up disagreeing. The tool is implemented and directly tested either way;
+only whether it is *offered* moves. `requirements.md`'s coverage note
+can be updated to say decision 4 is closed — the answer is "10 entries
+today, and the rule now enforces itself".
+
+**`POST /chat/messages` answers 500 until `T-CHAT-1`, deliberately.**
+`get_model_client` raises `ModelClientNotConfiguredError`; there is a
+test pinning that it fails as XC-14's envelope and leaks nothing of the
+exception's text, which turns green from the other direction once the
+next task wires a client. This is the split `tasks.md` drew, made
+visible rather than hidden behind a half-built client.
+
+**Three pre-existing files changed, all mechanically:**
+`tests/api/test_service_requests.py`'s SR-14 atomicity test now
+monkeypatches `StatusHistory` on the service module rather than the
+route module (the insert it sabotages moved); `tests/api/test_openapi.py`'s
+four route-count pins went 15→17, 8→10, 8→10, 7→8; and
+`app/api/schemas/common.py`'s `_as_utc_iso8601` is now public, because
+`get_request_status` renders timestamps into a `tool_result` block
+rather than through a response model and the model should read the same
+format back to a user that the API sends everywhere else.
+`backend/openapi.json` was regenerated with `python -m app.api.openapi`,
+as it must be whenever the route table changes.
+
+**Left for `T-CHAT-1`, and *not* started here:** the live Messages API
+call, `ANTHROPIC_API_KEY` in `config.py`/`.env.example`, the model id as
+config (`claude-haiku-4-5`, decision 1), and CHAT-4's 20-message history
+cap — the loop currently replays the whole conversation, which is
+correct but uncapped, and the cap is listed under `T-CHAT-1`'s coverage.
+The orchestration loop itself *is* here, because CHAT-10's acceptance
+criterion needs a full four-block exchange to exercise; what T-CHAT-1
+supplies is the client behind it, not the loop.
+
+**One thing worth flagging for the phase, not just this task:** every
+tool result is persisted and replayed to the model for the life of the
+conversation, so anything a tool writes into `content` is stored and
+re-sent indefinitely. That is why argument-error messages render `loc`
+and `msg` only — never Pydantic's `input`/`ctx` — and why the catch-all
+message is content-free. It is the same rule `validation_error_fields`
+follows for XC-4, arriving at a channel where the audience is a model
+that will read the string out loud.

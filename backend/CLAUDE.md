@@ -407,6 +407,115 @@ introduce another.** Pinned by
 worth knowing this is currently the only test protecting the ordering,
 since swapping the two dependencies breaks nothing else.
 
+## Chat-phase conventions
+
+The sections below apply to `specs/chatbot/tasks.md` work. Everything
+above still applies — a new phase does not change how models, routes,
+schemas or tests are written. Read `specs/chatbot/design.md`,
+`requirements.md` and `tasks.md` before writing any chat code.
+
+### The model is untrusted input
+
+`specs/chatbot/design.md §5` puts model output on the same footing as a
+request body, and CHAT-7 makes it testable rather than a habit. Two rules
+follow, and neither is negotiable in a later task:
+
+- **No tool handler takes an identity argument.** `execute_tool` is
+  handed the `User` that `get_current_user` resolved and passes that;
+  a `user_id`, `assignee` or `role` in the model's `input` object reaches
+  a schema that has no such field and ignores unknown keys. If a tool
+  ever genuinely needs to act on another user, that is a new requirement
+  with its own role gate, not an argument.
+- **Every tool calls the code the equivalent endpoint calls.** Creation
+  goes through `app/services/service_requests.py`; the status lookup
+  goes through `app/api/visibility.py`. Not a predicate that agrees with
+  them — the same function. A visibility rule with two implementations
+  is how one of them is tightened later and the other quietly is not,
+  and here the copy would be the one facing a component that can be
+  talked into asking for anything.
+
+### `app/services/`
+
+Created in `T-CHAT-0` because tool execution needed the insert `POST
+/service-requests` performs and not a copy of it. It is **not** a layer
+every route now routes through: a read that is a query plus a response
+model stays in its router. A function moves here when a second caller
+appears, not in anticipation of one.
+
+The chat code must never import a route module to reach a helper — same
+reason `visibility.py` exists as its own module rather than living in
+`routes/service_requests.py`.
+
+### The model client seam
+
+`app/chat/client.py` holds the `ChatModelClient` protocol, the
+`ModelResponse` shape and the `get_model_client` dependency, and contains
+no SDK import, no HTTP and no `ANTHROPIC_API_KEY`. That is the line
+`tasks.md` splits `T-CHAT-0` from `T-CHAT-1` at, and it is what lets the
+whole feature be tested deterministically: tests override the dependency
+with a stub returning fixed payloads (`tests/api/test_chat.py`), never by
+monkeypatching a module attribute.
+
+`ModelResponse.content` is the raw content-block array, stored and
+replayed verbatim. Do not parse it into typed objects on the way in — a
+conversion is where a block type this code has not heard of gets dropped,
+and `chat_messages.content` exists to be replayable, not readable.
+
+### Content blocks and roles
+
+The Messages API has no `tool` role. A `tool_use` block rides inside an
+**assistant** message and its `tool_result` inside the next **user**
+message; `chat_messages.role` is `CHECK`-constrained to those two, and
+the ordering between them is load-bearing rather than cosmetic — the API
+rejects a `tool_result` that does not follow its `tool_use`.
+
+**`chat_messages.created_at` defaults to `clock_timestamp()`, not
+`now()`**, and this is the one place in the schema that differs. `now()`
+is `transaction_timestamp()` and does not advance inside a transaction;
+this is the only table that appends several rows per unit of work, so
+under `now()` every row of a turn would share a timestamp and
+`ORDER BY created_at` would fall through to a random-UUID tiebreaker.
+Do not "regularise" it to match the other tables.
+
+### Anything a tool writes is stored and re-sent
+
+Every `tool_result` is persisted to `chat_messages` and replayed to the
+model on every subsequent call of that conversation. So a tool's error
+text is subject to the same rule as XC-4's envelope and for a sharper
+reason — the audience is a model that will read the string to the user:
+
+- Argument errors render Pydantic's `loc` and `msg` only, never `input`
+  or `ctx`.
+- The catch-all message is content-free; the traceback goes to the log.
+- An invisible or missing request produces one message for all three of
+  malformed id, no such row and someone else's row (XC-7).
+
+### A new migration *is* expected in this phase
+
+The API phase's "no new migration" note does not apply here: `T-CHAT-0`
+added `chat_conversations` and `chat_messages`. The rule that still holds
+is the one above it — generate the revision, present it, and let applying
+it be a separate explicit step. The test suite migrates its own database,
+so a green run is not evidence that the dev database was touched.
+
+### Testing chat code
+
+- **Never assert on model phrasing.** design.md §11 splits this in two:
+  deterministic tests drive the endpoint with a fixed tool-call payload
+  (all of `tests/api/test_chat.py`), and model-in-the-loop evals assert an
+  expected *tool choice*, not an expected reply, and run occasionally
+  rather than on every push.
+- `tests/chat/` needs no database, like `tests/core/`. Keep it that way —
+  a FAQ or tool-schema test that reaches for Postgres is arguing against
+  its own subject.
+- Test module basenames must be unique across the whole suite (there are
+  no `__init__.py` files in `tests/`), which is why the schema contract
+  test for these tables is `tests/db/test_chat_tables.py` and not
+  `test_chat.py`.
+- Adding a route changes the generated document: regenerate
+  `backend/openapi.json` with `python -m app.api.openapi`, and expect the
+  four route-count pins in `tests/api/test_openapi.py` to need updating.
+
 ## Testing
 
 Contract tests (R10, ORM phase) run against a real Postgres test database —
@@ -587,7 +696,7 @@ before starting the next task.
 All of the above are now in scope — see Non-goals below for what's still
 out of scope in the current phase.
 
-## Non-goals — API phase (current)
+## Non-goals — API phase (complete; still in force)
 
 - No rate limiting on `/auth/login` — explicitly deferred
   (`specs/api-phase/design.md §7`)
@@ -605,3 +714,20 @@ out of scope in the current phase.
   Order is fixed by `SR-15`; filters are `status` and `priority` only.
 - No `request_type` values beyond `'general'`
 - No admin-promotion endpoint — role changes remain a direct DB operation
+
+## Non-goals — chat phase (current)
+
+- No streaming (SSE). The endpoint is synchronous for this pass
+  (design.md §9) — building streaming alongside tool calling mixes two
+  new mechanisms at once.
+- No multi-thread conversations, no `POST /chat/conversations`, no
+  conversations list. One continuous conversation per user is decision 2,
+  and the UNIQUE constraint on `chat_conversations.user_id` enforces it.
+- No rate limiting on `/chat/messages` — deferred to Phase 6 (CHAT-18),
+  consistent with `/auth/login`, and flagged rather than dropped because
+  every message is a metered API call.
+- No FAQ table, ever (CHAT-12). The content is a module.
+- No optional `request_id` on `get_request_status` yet. design.md §4
+  flags the refinement — a user asking about "my ticket from yesterday"
+  has no id to hand — as a follow-up once basic tool calling works, not
+  as part of this pass.
