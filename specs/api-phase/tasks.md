@@ -947,15 +947,119 @@ the title in the heading now that it isn't backing a fabrication.
 
 **Acceptance criteria**:
 
-- [ ] A request with two real transitions shows two filled steps and the
+- [x] A request with two real transitions shows two filled steps and the
       remaining seeded statuses hollow, in `sort_order`
-- [ ] A regular user sees no status-change control in the DOM
-- [ ] Posting a status change (as admin) updates the stepper without a
+- [x] A regular user sees no status-change control in the DOM
+- [x] Posting a status change (as admin) updates the stepper without a
       full reload
-- [ ] `StatusHistoryState` and `STATUS_HISTORY_LABELS` no longer exist
+- [x] `StatusHistoryState` and `STATUS_HISTORY_LABELS` no longer exist
       anywhere in the frontend, including as untyped string literals
-- [ ] `RequestStatusPage`'s heading shows the real request title, not
+- [x] `RequestStatusPage`'s heading shows the real request title, not
       just the id
+
+**Complete.** See `task-log.md#t-sc-1`.
 
 **Group 4 checkpoint. All four vertical slices integrated — capstone API
 layer complete.**
+
+---
+
+## Group 5 — Hardening
+
+Added after auditing this project's actual code against
+`PROJECT_BRIEF.md`'s Phase 1–3 requirements directly, rather than
+against this file's own checkmarks. Found: no supported path to a first
+admin, no logging configuration, an OpenAPI spec that documents the
+wrong error shape, and two further security gaps (missing response
+headers, `COOKIE_SECURE` hardcoded rather than config-driven). See root
+`CLAUDE.md`'s traceability table for the full findings. Tasks below are
+added and ordered as they're picked up, not all planned up front.
+
+### T-DOCS-0 — Correct the generated OpenAPI spec
+
+**Goal**: `/openapi.json` currently documents behavior this API doesn't
+have and omits behavior it does. Fix the spec to match the real runtime
+contract — this is a documentation-accuracy task, not a behavior change.
+**No response body, status code, or existing test may change** as a
+result of this task; if something you're doing would change runtime
+behavior, stop and flag it instead.
+
+**Covers**: no new requirement IDs — this task makes generated
+documentation match `XC-4`/`XC-5`/`XC-6`/`XC-7`/`XC-9`/`XC-14` and every
+route's actual error surface, none of which changed.
+
+**Confirmed by audit, read `CLAUDE.md`'s traceability table for full
+detail before starting**:
+
+1. Every route's `422` currently documents FastAPI's stock
+   `HTTPValidationError` (`{"detail": [...]}`) — exactly the shape
+   `register_exception_handlers` replaces at runtime. The real shape is
+   the envelope from `design.md §1`
+   (`{"error": {"code", "message", "fields"}}`). This is wrong, not
+   merely incomplete, and is the highest-priority fix in this task.
+2. No route documents `401`, `403`, `404`, `409`, or `500` at all.
+3. `components.securitySchemes` is `null`. Neither the `access_token`
+   cookie nor the mandatory `X-Requested-With` header appears anywhere
+   in the spec.
+
+**Scope**:
+
+- Fix the `422` shape globally, for every route, in one place — not
+  per-route repetition of the same override. This project's standing
+  rule (`visibility.py`, `names.ts`, `api.ts`'s `Priority`/`StatusName`)
+  is one canonical shape, not a copy per caller; the same applies here.
+  A custom `openapi()` override on the app is the likely mechanism,
+  since this is FastAPI's own default behavior being replaced — but
+  read how the app is actually constructed (`create_app()`, `T-AUTH-2`)
+  before deciding, and use whichever approach doesn't require every
+  route to remember to opt in.
+- For each route, document the error statuses it can genuinely produce
+  — verify against the actual route code and `requirements.md`, not
+  from memory or by copying a plausible-looking list. At minimum:
+  `401` on every route behind `get_current_user`; `403` on routes
+  behind `require_role` and on any route the CSRF middleware covers;
+  `404` on every route resolving a path-parameter resource
+  (`SR-12`-shaped visibility, per `CM-4`/`CM-9`/`SC-2`/`SC-8`); `409`
+  on `POST /auth/register` only. Decide and note whether `500` is
+  documented per-route or handled some other way — it applies to every
+  route uniformly, which may argue against repeating it on each one.
+- Document the auth mechanism. `get_current_user` and the CSRF check
+  are both implemented outside individual route signatures (cookie
+  reading and middleware, respectively — see `backend/CLAUDE.md`'s Auth
+  dependencies and CSRF sections), which is exactly why neither is
+  currently visible to FastAPI's automatic introspection. Fixing this
+  most likely means manually adding a `securityScheme` describing the
+  cookie and applying it to every protected route, plus documenting the
+  `X-Requested-With` requirement somehow (a global note, a manually
+  added header parameter, whatever's clearest) — OpenAPI has no clean
+  native way to express "required by middleware." Pick one and say why.
+- One-line `summary` per route while its metadata is already being
+  touched. Full field-level descriptions on every schema are not
+  required for this task.
+- Export the corrected schema to a checked-in file (`openapi.json` or
+  `.yaml`, your call) closing `frontend/CLAUDE.md`'s standing "not yet
+  present in repo" note. Doesn't need to be wired into any codegen yet
+  — just present and accurate.
+
+**Acceptance criteria**:
+
+- [x] `/openapi.json`'s `422` response schema for every route matches
+      the real envelope (`error.code`/`error.message`/`error.fields`),
+      not `detail` — verified by parsing the generated schema, not by
+      reading the override code and assuming it worked
+- [x] Every route documents the error statuses it can actually return,
+      checked against real route code — not just "some 401 got added
+      somewhere"
+- [x] `components.securitySchemes` is non-null and describes the cookie
+      mechanism; it's applied to every route behind `get_current_user`
+- [x] The `X-Requested-With` requirement is documented somewhere a
+      person reading only `/docs` would find before their first failed
+      write request
+- [x] A checked-in OpenAPI file exists and matches `/openapi.json`
+      exactly (regenerate one from the other, don't hand-maintain two)
+- [x] **The full existing test suite (267 backend, 19 e2e) passes
+      unmodified** — this task changes documentation, not behavior
+- [x] Verify the fix can fail: temporarily revert the override, confirm
+      the spec reverts to the wrong stock shape, restore
+
+Report, then stop.

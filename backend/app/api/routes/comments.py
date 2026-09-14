@@ -54,7 +54,11 @@ def _audience_conditions(user: User) -> list:
     return [Comment.is_internal.is_(False)]
 
 
-@router.get("", response_model=Page[CommentOut])
+@router.get(
+    "",
+    response_model=Page[CommentOut],
+    summary="List a request's comments",
+)
 def list_comments(
     pagination: Pagination = Depends(pagination_params),
     parent: ServiceRequest = Depends(get_visible_parent_request),
@@ -106,7 +110,21 @@ def list_comments(
     )
 
 
-@router.post("", status_code=status.HTTP_201_CREATED, response_model=CommentOut)
+@router.post(
+    "",
+    status_code=status.HTTP_201_CREATED,
+    response_model=CommentOut,
+    summary="Comment on a request",
+    responses={
+        403: {
+            "description": (
+                "a caller who is not an administrator asks for "
+                "`is_internal: true` — the comment is refused rather than "
+                "quietly made public (CM-7)"
+            )
+        }
+    },
+)
 def create_comment(
     payload: CommentCreate,
     parent: ServiceRequest = Depends(get_visible_parent_request),

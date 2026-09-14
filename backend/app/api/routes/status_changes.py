@@ -81,7 +81,11 @@ def _resolve_status(db: Session, status_id: uuid.UUID) -> Status:
     return row
 
 
-@router.get("", response_model=Page[StatusChangeOut])
+@router.get(
+    "",
+    response_model=Page[StatusChangeOut],
+    summary="List a request's status history",
+)
 def list_status_changes(
     pagination: Pagination = Depends(pagination_params),
     parent: ServiceRequest = Depends(get_visible_parent_request),
@@ -134,7 +138,10 @@ def list_status_changes(
 
 
 @router.post(
-    "", status_code=status.HTTP_201_CREATED, response_model=StatusChangeOut
+    "",
+    status_code=status.HTTP_201_CREATED,
+    response_model=StatusChangeOut,
+    summary="Transition a request to a new status",
 )
 def create_status_change(
     payload: StatusChangeCreate,

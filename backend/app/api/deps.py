@@ -108,6 +108,11 @@ def require_role(role: str) -> Callable[..., User]:
             raise ForbiddenError()
         return user
 
+    # Read by `app/api/openapi.py` to document this route's 403 (T-DOCS-0).
+    # A marker rather than a check on the closure's name, so renaming the
+    # function above cannot silently drop a documented status. Affects the
+    # generated spec only; nothing at request time reads it.
+    _require_role.required_role = role  # type: ignore[attr-defined]
     return _require_role
 
 

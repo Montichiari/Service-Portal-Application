@@ -1,0 +1,1759 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Service Portal API",
+    "version": "1.0.0",
+    "description": "Service portal API. Every path below is mounted under `/api/v1` except the\n`/health` probes, which are operational endpoints outside the contract.\n\n### Errors\n\nEvery error response — validation failures, auth failures, not-found and\nunhandled crashes alike — uses one envelope:\n\n```json\n{\n  \"error\": {\n    \"code\": \"VALIDATION_ERROR\",\n    \"message\": \"One or more fields are invalid.\",\n    \"fields\": { \"email\": [\"value is not a valid email address\"] }\n  }\n}\n```\n\n`fields` is present only on `VALIDATION_ERROR`, so its presence is meaningful.\n`code` is a closed set: `BAD_REQUEST`, `UNAUTHENTICATED`, `FORBIDDEN`, `NOT_FOUND`, `CONFLICT`, `VALIDATION_ERROR`, `INTERNAL_ERROR`.\n\nEvery operation can additionally answer `500` with an `INTERNAL_ERROR`\nenvelope; its `message` is deliberately content-free and the traceback stays in\nthe server log.\n\n### Authentication\n\nSessions are cookie-based. `POST /api/v1/auth/login` sets `access_token`\n(1 hour) and `refresh_token` (30 days), both `httpOnly`, `Secure` and\n`SameSite=Lax`; the browser attaches them automatically and no client-side\nscript can read them. There is no `Authorization` header and no bearer token.\nOperations marked with a lock require `access_token`;\n`POST /api/v1/auth/refresh` requires `refresh_token` instead, and\nrotates it.\n\n### `X-Requested-With` is required on every write\n\n**Every request whose method is not `GET`, `HEAD` or `OPTIONS` must carry a\n`X-Requested-With` header**, with any non-empty value. It is enforced by\nmiddleware ahead of routing, so a write that omits it is answered `403` /\n`FORBIDDEN` before the route, the body, or the session cookie is looked at. It\nis listed as a required header parameter on every such operation below.\n"
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Liveness probe",
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object",
+                  "title": "Response Health Health Get"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Returned when the request failed for a reason the API does not attribute to the caller — `message` never carries internal detail and the traceback is logged server-side (XC-14).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health/db": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Database connectivity probe",
+        "operationId": "health_db_health_db_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "503": {
+            "description": "Returned when the database cannot be reached.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "error"
+                      ]
+                    },
+                    "db": {
+                      "type": "string",
+                      "enum": [
+                        "unreachable"
+                      ]
+                    }
+                  },
+                  "type": "object",
+                  "required": [
+                    "status",
+                    "db"
+                  ]
+                },
+                "example": {
+                  "status": "error",
+                  "db": "unreachable"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Returned when the request failed for a reason the API does not attribute to the caller — `message` never carries internal detail and the traceback is logged server-side (XC-14).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/register": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Register an account",
+        "description": "Create an account (AUTH-1 through AUTH-5, AUTH-16).\n\nDoes **not** sign the new user in: no cookie is set, and the caller is\nexpected to send them to the login form (design.md §2). Registration and\nauthentication stay separate events, which keeps this endpoint from being\na way to mint a session.",
+        "operationId": "register_api_v1_auth_register_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegisteredUser"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Returned when that email address is already registered (AUTH-2).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Returned when one or more supplied fields are invalid (XC-4).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Returned when the `X-Requested-With` header is missing, which middleware refuses before routing (XC-9).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Returned when the request failed for a reason the API does not attribute to the caller — `message` never carries internal detail and the traceback is logged server-side (XC-14).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-Requested-With",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Requested-With",
+              "default": "XMLHttpRequest"
+            },
+            "description": "CSRF guard (XC-9). Any non-empty value. Enforced by middleware before routing, so a request without it is answered `403` without its body or its cookies being read — which is why it is absent from this operation's handler signature."
+          }
+        ]
+      }
+    },
+    "/api/v1/auth/login": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Sign in and start a session",
+        "description": "Start a session (AUTH-6 through AUTH-8).",
+        "operationId": "login_api_v1_auth_login_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionUser"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Returned when the credentials are rejected — an unknown address, a wrong password and a deactivated account are answered identically (AUTH-7, AUTH-8).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Returned when one or more supplied fields are invalid (XC-4).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Returned when the `X-Requested-With` header is missing, which middleware refuses before routing (XC-9).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Returned when the request failed for a reason the API does not attribute to the caller — `message` never carries internal detail and the traceback is logged server-side (XC-14).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-Requested-With",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Requested-With",
+              "default": "XMLHttpRequest"
+            },
+            "description": "CSRF guard (XC-9). Any non-empty value. Enforced by middleware before routing, so a request without it is answered `403` without its body or its cookies being read — which is why it is absent from this operation's handler signature."
+          }
+        ]
+      }
+    },
+    "/api/v1/auth/me": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "The signed-in user",
+        "description": "Who is signed in (AUTH-14, AUTH-15).\n\nThe frontend's session bootstrap: cookie-based sessions live on the server,\nso this is how a freshly loaded page discovers whether it has one.\n\n``get_current_user`` reads the access-token cookie and nothing else, which\nis AUTH-15's requirement rather than an omission — a `/me` that quietly\nrefreshed would make an expired session indistinguishable from a live one,\nand refreshing is `/auth/refresh`'s job.",
+        "operationId": "me_api_v1_auth_me_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionUser"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Returned when the `access_token` cookie is absent, expired, or no longer names an active user — no distinction is drawn between those cases (XC-5).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Returned when the request failed for a reason the API does not attribute to the caller — `message` never carries internal detail and the traceback is logged server-side (XC-14).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "accessTokenCookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/auth/refresh": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Rotate the session cookies",
+        "description": "Rotate the refresh token and reissue both cookies (AUTH-9 through AUTH-11).\n\nReads the refresh cookie directly rather than depending on\n``get_current_user``: the access token is expected to be expired by the\ntime anything calls this, which is the whole point of the endpoint.",
+        "operationId": "refresh_api_v1_auth_refresh_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionUser"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Returned when the refresh cookie is absent, unknown, expired, already rotated, or belongs to a user who is gone or deactivated (AUTH-9 to AUTH-11).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Returned when the `X-Requested-With` header is missing, which middleware refuses before routing (XC-9).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Returned when the request failed for a reason the API does not attribute to the caller — `message` never carries internal detail and the traceback is logged server-side (XC-14).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "refreshTokenCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-Requested-With",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Requested-With",
+              "default": "XMLHttpRequest"
+            },
+            "description": "CSRF guard (XC-9). Any non-empty value. Enforced by middleware before routing, so a request without it is answered `403` without its body or its cookies being read — which is why it is absent from this operation's handler signature."
+          }
+        ]
+      }
+    },
+    "/api/v1/auth/logout": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "End the session",
+        "description": "End the session (AUTH-12, AUTH-13). Always ``204``.\n\nDeliberately not gated on ``get_current_user``. AUTH-13 makes logout\nidempotent, and a ``401`` for a caller whose session had already expired\nwould fail their \"sign out\" click at the one moment it is least useful to\nargue about — and would leave the stale cookies sitting in their browser.\nClearing the cookies is unconditional for the same reason.\n\nReturns the ``Response`` object directly so the body is genuinely empty:\na ``204`` carrying a serialized `null` would be malformed.",
+        "operationId": "logout_api_v1_auth_logout_post",
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Returned when the `X-Requested-With` header is missing, which middleware refuses before routing (XC-9).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Returned when the request failed for a reason the API does not attribute to the caller — `message` never carries internal detail and the traceback is logged server-side (XC-14).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-Requested-With",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Requested-With",
+              "default": "XMLHttpRequest"
+            },
+            "description": "CSRF guard (XC-9). Any non-empty value. Enforced by middleware before routing, so a request without it is answered `403` without its body or its cookies being read — which is why it is absent from this operation's handler signature."
+          }
+        ]
+      }
+    },
+    "/api/v1/statuses": {
+      "get": {
+        "tags": [
+          "statuses"
+        ],
+        "summary": "List the service request statuses",
+        "description": "Every seeded status, in display order (ST-1, ST-2).\n\nOrdered by ``sort_order`` in SQL, not by insertion or by name: the column\nexists precisely so the stepper's order is data rather than a convention\nthe frontend has to re-know. ``open`` before ``closed`` is not\nalphabetical, and rows come back in no guaranteed order without an\n``ORDER BY``.",
+        "operationId": "list_statuses_api_v1_statuses_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusList"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Returned when the request failed for a reason the API does not attribute to the caller — `message` never carries internal detail and the traceback is logged server-side (XC-14).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/service-requests": {
+      "get": {
+        "tags": [
+          "service-requests"
+        ],
+        "summary": "List service requests visible to the caller",
+        "description": "A page of requests the caller may see (SR-1 to SR-5, SR-15, XC-10, XC-11).",
+        "operationId": "list_service_requests_api_v1_service_requests_get",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "name": "priority",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "low",
+                    "medium",
+                    "high"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Priority"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1,
+              "title": "Page"
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 20,
+              "title": "Page Size"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_ServiceRequestOut_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Returned when one or more supplied fields are invalid (XC-4).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Returned when the `access_token` cookie is absent, expired, or no longer names an active user — no distinction is drawn between those cases (XC-5).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Returned when the request failed for a reason the API does not attribute to the caller — `message` never carries internal detail and the traceback is logged server-side (XC-14).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "accessTokenCookie": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "service-requests"
+        ],
+        "summary": "File a service request",
+        "description": "File a request on behalf of the caller (SR-6 to SR-10, SR-14).\n\nThree of the row's columns are never read from the body (SR-10 / XC-8):\n``requestor_id`` is the authenticated user, ``request_type`` is\n``'general'``, and ``current_status_id`` is whatever ``'open'``'s id is.\nThe schema has no fields for them, so a body supplying all three is\naccepted and creates exactly the same row as one that doesn't — which is\nXC-8's actual requirement, and the reason the schema ignores unknown keys\nrather than rejecting them.",
+        "operationId": "create_service_request_api_v1_service_requests_post",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ServiceRequestCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceRequestOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Returned when one or more supplied fields are invalid (XC-4).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Returned when the `access_token` cookie is absent, expired, or no longer names an active user — no distinction is drawn between those cases (XC-5).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Returned when the `X-Requested-With` header is missing, which middleware refuses before routing (XC-9).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Returned when the request failed for a reason the API does not attribute to the caller — `message` never carries internal detail and the traceback is logged server-side (XC-14).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "accessTokenCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-Requested-With",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Requested-With",
+              "default": "XMLHttpRequest"
+            },
+            "description": "CSRF guard (XC-9). Any non-empty value. Enforced by middleware before routing, so a request without it is answered `403` without its body or its cookies being read — which is why it is absent from this operation's handler signature."
+          }
+        ]
+      }
+    },
+    "/api/v1/service-requests/{request_id}": {
+      "get": {
+        "tags": [
+          "service-requests"
+        ],
+        "summary": "Fetch one service request",
+        "description": "One request, if the caller may see it (SR-11 to SR-13).\n\n``request_id`` is typed ``str`` deliberately — see ``parse_uuid_or_none``.",
+        "operationId": "get_service_request_api_v1_service_requests__request_id__get",
+        "parameters": [
+          {
+            "name": "request_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Request Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceRequestOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Returned when the `access_token` cookie is absent, expired, or no longer names an active user — no distinction is drawn between those cases (XC-5).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Returned when no service request with that id is visible to the caller — a malformed id, an id matching no row, and an id belonging to someone else are answered identically by design (XC-7, SR-13).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Returned when the request failed for a reason the API does not attribute to the caller — `message` never carries internal detail and the traceback is logged server-side (XC-14).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "accessTokenCookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/service-requests/{request_id}/comments": {
+      "get": {
+        "tags": [
+          "comments"
+        ],
+        "summary": "List a request's comments",
+        "description": "A page of this request's comments the caller may see (CM-1 to CM-4).\n\n``user`` is declared alongside ``parent`` even though the parent dependency\nresolves it too — FastAPI caches a dependency per request, so this is one\nlookup, not two, and the alternative is reading the caller off the parent\nobject, which it is not.",
+        "operationId": "list_comments_api_v1_service_requests__request_id__comments_get",
+        "parameters": [
+          {
+            "name": "request_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Request Id"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1,
+              "title": "Page"
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 20,
+              "title": "Page Size"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_CommentOut_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Returned when one or more supplied fields are invalid (XC-4).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Returned when the `access_token` cookie is absent, expired, or no longer names an active user — no distinction is drawn between those cases (XC-5).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Returned when no service request with that id is visible to the caller — a malformed id, an id matching no row, and an id belonging to someone else are answered identically by design (XC-7, SR-13).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Returned when the request failed for a reason the API does not attribute to the caller — `message` never carries internal detail and the traceback is logged server-side (XC-14).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "accessTokenCookie": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "comments"
+        ],
+        "summary": "Comment on a request",
+        "description": "Post a comment on a request the caller may see (CM-5 to CM-9).\n\n``author_id`` is the authenticated user and is never read from the body\n(XC-8) — the schema has no field for it, so a body supplying one creates\nexactly the same row as one that doesn't.",
+        "operationId": "create_comment_api_v1_service_requests__request_id__comments_post",
+        "parameters": [
+          {
+            "name": "request_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Request Id"
+            }
+          },
+          {
+            "name": "X-Requested-With",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Requested-With",
+              "default": "XMLHttpRequest"
+            },
+            "description": "CSRF guard (XC-9). Any non-empty value. Enforced by middleware before routing, so a request without it is answered `403` without its body or its cookies being read — which is why it is absent from this operation's handler signature."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CommentCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommentOut"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Returned when the `X-Requested-With` header is missing, which middleware refuses before routing (XC-9); or when a caller who is not an administrator asks for `is_internal: true` — the comment is refused rather than quietly made public (CM-7).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Returned when one or more supplied fields are invalid (XC-4).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Returned when the `access_token` cookie is absent, expired, or no longer names an active user — no distinction is drawn between those cases (XC-5).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Returned when no service request with that id is visible to the caller — a malformed id, an id matching no row, and an id belonging to someone else are answered identically by design (XC-7, SR-13).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Returned when the request failed for a reason the API does not attribute to the caller — `message` never carries internal detail and the traceback is logged server-side (XC-14).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "accessTokenCookie": []
+          }
+        ]
+      }
+    },
+    "/api/v1/service-requests/{request_id}/status-changes": {
+      "get": {
+        "tags": [
+          "status-changes"
+        ],
+        "summary": "List a request's status history",
+        "description": "This request's transitions, oldest first (SC-1 to SC-3, XC-10, XC-11).\n\nNo role branch: SC-1 gives the history to whoever can see the request, and\nthe parent dependency has already decided that. Unlike comments, there is no\nper-row audience — a transition is a fact about the request, not a note\nabout it.\n\nEvery row returned is a row that exists (SC-3). That is not enforced by\nanything here so much as by there being nothing here that could invent one:\nthe un-reached statuses a stepper draws hollow are absent from this query's\ntable, and design.md §5 puts that merge in the frontend deliberately.",
+        "operationId": "list_status_changes_api_v1_service_requests__request_id__status_changes_get",
+        "parameters": [
+          {
+            "name": "request_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Request Id"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1,
+              "title": "Page"
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 20,
+              "title": "Page Size"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_StatusChangeOut_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Returned when one or more supplied fields are invalid (XC-4).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Returned when the `access_token` cookie is absent, expired, or no longer names an active user — no distinction is drawn between those cases (XC-5).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Returned when no service request with that id is visible to the caller — a malformed id, an id matching no row, and an id belonging to someone else are answered identically by design (XC-7, SR-13).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Returned when the request failed for a reason the API does not attribute to the caller — `message` never carries internal detail and the traceback is logged server-side (XC-14).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "accessTokenCookie": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "status-changes"
+        ],
+        "summary": "Transition a request to a new status",
+        "description": "Transition a request, as an admin (SC-4 to SC-7).\n\n``changed_by_id`` is the authenticated admin and is never read from the body\n(XC-8) — the schema has no field for it, so a body supplying one produces\nexactly the same row as one that doesn't.",
+        "operationId": "create_status_change_api_v1_service_requests__request_id__status_changes_post",
+        "parameters": [
+          {
+            "name": "request_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Request Id"
+            }
+          },
+          {
+            "name": "X-Requested-With",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Requested-With",
+              "default": "XMLHttpRequest"
+            },
+            "description": "CSRF guard (XC-9). Any non-empty value. Enforced by middleware before routing, so a request without it is answered `403` without its body or its cookies being read — which is why it is absent from this operation's handler signature."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StatusChangeCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusChangeOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Returned when one or more supplied fields are invalid (XC-4).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Returned when the `access_token` cookie is absent, expired, or no longer names an active user — no distinction is drawn between those cases (XC-5).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Returned when the `X-Requested-With` header is missing, which middleware refuses before routing (XC-9); or when the caller's role is below the one this operation requires (XC-6).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Returned when no service request with that id is visible to the caller — a malformed id, an id matching no row, and an id belonging to someone else are answered identically by design (XC-7, SR-13).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Returned when the request failed for a reason the API does not attribute to the caller — `message` never carries internal detail and the traceback is logged server-side (XC-14).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "accessTokenCookie": []
+          }
+        ]
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "CommentCreate": {
+        "properties": {
+          "body": {
+            "type": "string",
+            "maxLength": 5000,
+            "minLength": 1,
+            "title": "Body"
+          },
+          "is_internal": {
+            "type": "boolean",
+            "title": "Is Internal",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "body"
+        ],
+        "title": "CommentCreate",
+        "description": "``POST /service-requests/{id}/comments`` body (CM-5 through CM-8)."
+      },
+      "CommentOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "author": {
+            "$ref": "#/components/schemas/UserSummary"
+          },
+          "body": {
+            "type": "string",
+            "title": "Body"
+          },
+          "is_internal": {
+            "type": "boolean",
+            "title": "Is Internal"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "author",
+          "body",
+          "is_internal",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "CommentOut",
+        "description": "One comment, as design.md §6 writes it.\n\n``is_internal`` is on every comment, including the ones a `user`-role\ncaller receives — where it is always ``false``, because CM-2 filters the\nothers out in the query. Emitting it unconditionally is what lets an admin\nUI mark a comment internal (CM-3) without a second response shape."
+      },
+      "LoginRequest": {
+        "properties": {
+          "email": {
+            "type": "string",
+            "maxLength": 255,
+            "format": "email",
+            "title": "Email"
+          },
+          "password": {
+            "type": "string",
+            "title": "Password"
+          }
+        },
+        "type": "object",
+        "required": [
+          "email",
+          "password"
+        ],
+        "title": "LoginRequest",
+        "description": "``POST /auth/login`` body (AUTH-6, AUTH-7)."
+      },
+      "Page_CommentOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CommentOut"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "page": {
+            "type": "integer",
+            "title": "Page"
+          },
+          "page_size": {
+            "type": "integer",
+            "title": "Page Size"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "page",
+          "page_size"
+        ],
+        "title": "Page[CommentOut]"
+      },
+      "Page_ServiceRequestOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ServiceRequestOut"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "page": {
+            "type": "integer",
+            "title": "Page"
+          },
+          "page_size": {
+            "type": "integer",
+            "title": "Page Size"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "page",
+          "page_size"
+        ],
+        "title": "Page[ServiceRequestOut]"
+      },
+      "Page_StatusChangeOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/StatusChangeOut"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "page": {
+            "type": "integer",
+            "title": "Page"
+          },
+          "page_size": {
+            "type": "integer",
+            "title": "Page Size"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "page",
+          "page_size"
+        ],
+        "title": "Page[StatusChangeOut]"
+      },
+      "RegisterRequest": {
+        "properties": {
+          "first_name": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "First Name"
+          },
+          "last_name": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Last Name"
+          },
+          "email": {
+            "type": "string",
+            "maxLength": 255,
+            "format": "email",
+            "title": "Email"
+          },
+          "password": {
+            "type": "string",
+            "minLength": 12,
+            "title": "Password"
+          }
+        },
+        "type": "object",
+        "required": [
+          "first_name",
+          "last_name",
+          "email",
+          "password"
+        ],
+        "title": "RegisterRequest",
+        "description": "``POST /auth/register`` body (AUTH-1, AUTH-3, AUTH-4, AUTH-16)."
+      },
+      "RegisteredUser": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "first_name": {
+            "type": "string",
+            "title": "First Name"
+          },
+          "last_name": {
+            "type": "string",
+            "title": "Last Name"
+          },
+          "email": {
+            "type": "string",
+            "title": "Email"
+          },
+          "role": {
+            "type": "string",
+            "title": "Role"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "first_name",
+          "last_name",
+          "email",
+          "role",
+          "created_at"
+        ],
+        "title": "RegisteredUser",
+        "description": "``POST /auth/register``'s ``201`` body (AUTH-1).\n\nField-for-field from design.md §2, in that order. Not built by extending\n``SessionUser``: the two overlap today by coincidence of what registration\nhappens to echo back, and tying them together would propagate any later\nchange to the session shape into the registration contract."
+      },
+      "ServiceRequestCreate": {
+        "properties": {
+          "title": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Title"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 10000,
+            "minLength": 1,
+            "title": "Description"
+          },
+          "priority": {
+            "type": "string",
+            "enum": [
+              "low",
+              "medium",
+              "high"
+            ],
+            "title": "Priority"
+          }
+        },
+        "type": "object",
+        "required": [
+          "title",
+          "description",
+          "priority"
+        ],
+        "title": "ServiceRequestCreate",
+        "description": "``POST /service-requests`` body (SR-6 through SR-10)."
+      },
+      "ServiceRequestOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "request_type": {
+            "type": "string",
+            "title": "Request Type"
+          },
+          "priority": {
+            "type": "string",
+            "title": "Priority"
+          },
+          "status": {
+            "$ref": "#/components/schemas/StatusOut"
+          },
+          "requestor": {
+            "$ref": "#/components/schemas/UserSummary"
+          },
+          "assignee": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UserSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "title": "Updated At"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "request_type",
+          "priority",
+          "status",
+          "requestor",
+          "assignee",
+          "created_at",
+          "updated_at",
+          "description"
+        ],
+        "title": "ServiceRequestOut",
+        "description": "The one ``ServiceRequest`` shape, for list and detail alike.\n\ndesign.md §0 decision 2: not two shapes. ``description`` is present in both\n(SR-5) — one text field per row is cheap next to having two payloads that\nare almost the same, which is the inconsistency this contract exists to\nresolve.\n\nFields are ordered as design.md §4 writes them."
+      },
+      "SessionUser": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "first_name": {
+            "type": "string",
+            "title": "First Name"
+          },
+          "last_name": {
+            "type": "string",
+            "title": "Last Name"
+          },
+          "role": {
+            "type": "string",
+            "title": "Role"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "first_name",
+          "last_name",
+          "role"
+        ],
+        "title": "SessionUser",
+        "description": "Who the caller is — login, refresh and ``/auth/me`` all return this.\n\nOne shape for all three (design.md §2) so the frontend has a single\n\"current user\" type regardless of which call produced it. No `email`, no\ntimestamps, and — the point of the model existing — no `password_hash`."
+      },
+      "StatusChangeCreate": {
+        "properties": {
+          "status_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Status Id"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status_id"
+        ],
+        "title": "StatusChangeCreate",
+        "description": "``POST /service-requests/{id}/status-changes`` body (SC-5 to SC-7)."
+      },
+      "StatusChangeOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "status": {
+            "$ref": "#/components/schemas/StatusOut"
+          },
+          "changed_by": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UserSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "changed_at": {
+            "type": "string",
+            "title": "Changed At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "status",
+          "changed_by",
+          "note",
+          "changed_at"
+        ],
+        "title": "StatusChangeOut",
+        "description": "One transition, as design.md §5 writes it.\n\nEvery field is of a row that actually happened. SC-3 forbids synthesising a\nplaceholder for a status not yet reached, so there is no \"pending\" variant\nof this shape and no nullable ``changed_at`` — the frontend's stepper gets\nits un-reached steps by diffing this list against ``GET /statuses``, not by\nreceiving hollow rows from here."
+      },
+      "StatusList": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/StatusOut"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "title": "StatusList",
+        "description": "``GET /statuses``' body (ST-2).\n\nA bare ``{\"items\": [...]}``, deliberately **not** XC-10's paginated\nenvelope: the table holds exactly four seeded rows, always, so ``total`` /\n``page`` / ``page_size`` would be constants dressed up as data. A separate\nmodel rather than a raw dict so the shape reaches the OpenAPI document."
+      },
+      "StatusOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "sort_order": {
+            "type": "integer",
+            "title": "Sort Order"
+          },
+          "is_terminal": {
+            "type": "boolean",
+            "title": "Is Terminal"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "sort_order",
+          "is_terminal"
+        ],
+        "title": "StatusOut",
+        "description": "One row of the ``statuses`` reference table (design.md §1)."
+      },
+      "UserSummary": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "first_name": {
+            "type": "string",
+            "title": "First Name"
+          },
+          "last_name": {
+            "type": "string",
+            "title": "Last Name"
+          },
+          "role": {
+            "type": "string",
+            "title": "Role"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "first_name",
+          "last_name",
+          "role"
+        ],
+        "title": "UserSummary",
+        "description": "A user reference embedded in another resource (design.md §1)."
+      },
+      "ErrorDetail": {
+        "title": "ErrorDetail",
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string",
+            "enum": [
+              "BAD_REQUEST",
+              "UNAUTHENTICATED",
+              "FORBIDDEN",
+              "NOT_FOUND",
+              "CONFLICT",
+              "VALIDATION_ERROR",
+              "INTERNAL_ERROR"
+            ],
+            "description": "Machine-readable error class. Closed set."
+          },
+          "message": {
+            "title": "Message",
+            "type": "string",
+            "description": "Human-readable summary, safe to show a user. Never carries server internals."
+          },
+          "fields": {
+            "title": "Fields",
+            "type": "object",
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "description": "Per-field messages, keyed by field name. Present only on `VALIDATION_ERROR`."
+          }
+        }
+      },
+      "ErrorEnvelope": {
+        "title": "ErrorEnvelope",
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/ErrorDetail"
+          }
+        },
+        "description": "The one shape every error response in this API uses."
+      }
+    },
+    "securitySchemes": {
+      "accessTokenCookie": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "access_token",
+        "description": "Session access token. Set by `POST /api/v1/auth/login` and `POST /api/v1/auth/refresh` as an `httpOnly`, `Secure`, `SameSite=Lax` cookie with a 1 hour lifetime. Sent automatically by the browser; not readable from JavaScript and not settable by a client."
+      },
+      "refreshTokenCookie": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "refresh_token",
+        "description": "Opaque refresh token, 30 day lifetime, same cookie attributes as `access_token`. Read by `POST /api/v1/auth/refresh` only, which rotates it; replaying an already-rotated token revokes the whole family (AUTH-11)."
+      }
+    }
+  }
+}

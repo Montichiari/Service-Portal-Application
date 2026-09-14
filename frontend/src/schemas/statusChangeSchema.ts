@@ -3,8 +3,9 @@ import { z } from 'zod'
 /**
  * Status-change composer shape, reconciled against
  * specs/api-phase/requirements.md (SC-5 to SC-7) in T-SC-1 — the permanent
- * source of truth for these constraints, there being no openapi.yaml in the
- * repo.
+ * source of truth for these constraints. The generated backend/openapi.json
+ * (T-DOCS-0) reports what the API currently enforces; it does not replace
+ * requirements.md here.
  *
  *   - status_id — required, an id from `GET /statuses`
  *   - note      — optional, no maximum

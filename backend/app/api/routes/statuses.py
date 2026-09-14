@@ -21,7 +21,11 @@ from app.db.models import Status
 router = APIRouter(prefix="/statuses", tags=["statuses"])
 
 
-@router.get("", response_model=StatusList)
+@router.get(
+    "",
+    response_model=StatusList,
+    summary="List the service request statuses",
+)
 def list_statuses(db: Session = Depends(get_db)) -> StatusList:
     """Every seeded status, in display order (ST-1, ST-2).
 

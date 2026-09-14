@@ -39,10 +39,19 @@ API phase (current):
   here rather than repeating it; read this when you want the reasoning
   behind a past decision, not before starting a new one.
 
-There is still no `openapi.yaml` in the repo. `specs/api-phase/design.md`
-and `requirements.md` are the durable source of truth for request/response
-shapes and validation — build and reconcile zod schemas against those, not
-against a generated spec that doesn't exist.
+A generated spec now exists: `backend/openapi.json` (T-DOCS-0), regenerated
+with `python -m app.api.openapi` from `backend/` and never hand-edited. It
+is accurate about the wire contract — the error envelope, every route's real
+error statuses, the cookie auth and the mandatory `X-Requested-With` header
+— and it is the thing to read when you want to know what a response
+actually looks like.
+
+It is **not** wired into codegen, and it is still not the source of truth
+for field constraints. `specs/api-phase/requirements.md` is: a generated
+spec carries the validation the code happens to implement, which is the
+thing a zod schema is supposed to be checked against rather than copied
+from. Build and reconcile schemas against `requirements.md`, then use
+`openapi.json` to confirm the shape.
 
 ## Tech stack
 
@@ -216,10 +225,11 @@ next to a component.
 
 Every form: `react-hook-form` + a `zod` schema colocated in `schemas/`,
 named after the resource it mirrors. Build/reconcile the schema directly
-from `specs/api-phase/requirements.md` this phase — there is still no
-`openapi.yaml` in the repo; that forward-reference from the prototype
-phase is retired, `requirements.md` is the permanent source of truth for
-field constraints, not a placeholder for something else later.
+from `specs/api-phase/requirements.md` — the prototype phase's forward
+reference to an `openapi.yaml` is retired, and `backend/openapi.json`
+(T-DOCS-0) does not replace it: `requirements.md` is the permanent source
+of truth for field constraints, and a generated spec only reports what the
+code currently enforces.
 
 On valid submit: call the matching `src/lib/api.ts` function, surface
 `error.fields` per-field via `setError` on validation failure (see Error

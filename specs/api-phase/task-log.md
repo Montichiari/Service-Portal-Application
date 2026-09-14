@@ -646,5 +646,104 @@ worth confirming against the actual function name in
 `app/api/visibility.py` before the next task that touches it, and
 correcting whichever side is stale.
 
-_(No further groups — this closes Group 4's backend half. `T-SC-1` is
-the frontend half and the final task of the phase.)_
+### T-SC-1
+
+**Complete.** 19/19 Playwright specs green, build and lint clean. 4
+deliberate mutations, all caught, each observed red then restored —
+including a direct reapplication of `T-CM-1`'s reload-vs-append test: the
+local-append implementation was swapped for `window.location.reload()`,
+and the sentinel test caught it while the visibility assertion alone
+would have stayed green. The lesson from Group 3 held up unchanged
+against new code, which is the actual point of writing it down as a
+convention rather than leaving it as a one-off finding.
+
+**The grep-for-literal-strings lesson closed its own loop.** `T-SR-1`
+found a retired status surviving as an untyped string in
+`utils.ts`'s `tailwind-merge` class-group config and wrote the rule
+into `frontend/CLAUDE.md`. This task's retirement of
+`StatusHistoryState`/`STATUS_HISTORY_LABELS` explicitly grepped for
+`status-submitted`/`status-assigned` in that same config and for
+`'Assigned to IT Service Desk'` tree-wide, finding nothing — the
+convention was applied by the next task that needed it, not just
+filed. `src/data/` is now empty and deleted entirely: the last of the
+three fixtures `T-SR-1` began retiring is gone.
+
+**A new pagination-correctness finding, the frontend mirror of the
+backend's `total`-must-respect-every-predicate family**:
+`loadStatusHistory` drains every page of `GET
+/service-requests/{id}/status-changes` rather than merging against page
+one alone. The distinction that matters: a paginated list serving a
+_display_ ("show me a page of results") is correctly satisfied by one
+page at a time, but a paginated list consumed to answer an _existence_
+question over the whole history ("has this status ever been reached")
+is not — a status first reached on transition 21 would draw hollow
+under a page-one-only merge, for a service request that had simply
+accumulated enough back-and-forth transitions. Nothing in this project's
+fixtures has ever had more than a handful of transitions, so this would
+have shipped invisible. Worth a durable line in `frontend/CLAUDE.md`'s
+Async state section: draining every page is the correct default whenever
+a paginated collection feeds an existence or completeness check rather
+than a rendered page.
+
+**Two further instances of "one canonical shape, not a duplicate per
+caller"**, the same instinct behind `visibility.py`, `names.ts`, and
+`Priority`/`StatusName` in `api.ts`: `Timeline.tsx`'s `label`/`meta`
+props widened from `string` to `ReactNode` rather than forcing a second
+status-label table next to `StatusPill`'s or losing the `<time
+dateTime>` wrapper on a formatted date; and a shared `PageQuery` type in
+`api.ts` replacing what would have been a third identical
+`{page, page_size}` interface after `CommentQuery`. Also: `Timeline`'s
+steps are now keyed by `id`, matching `T-CM-1`'s comment-list rule for
+the same reason, applied here without being asked — the pattern was
+recognized by shape, not looked up.
+
+**Group 4 checkpoint. All four vertical slices integrated — capstone API
+layer complete.** Backend (`T-SC-0`) and frontend (`T-SC-1`) both built,
+reviewed, and integrated, closing the last of the four groups this
+phase's `tasks.md` laid out at the start.
+
+---
+
+## API phase complete
+
+Four vertical slices (Auth, Service Requests, Comments, Status History),
+each built backend-then-frontend and reviewed as a pair before the next
+opened. A few things worth carrying forward, now that the whole arc is
+visible:
+
+**The "test passes without the thing it names being true" pattern
+recurred six times**, in six different disguises, across both halves of
+the stack — `T-AUTH-1` (a tamper test corrupting encoding rather than
+meaning), `T-AUTH-3` (an assertion computing its expectation from the
+constant it tested), `T-DEBT-3` (a shared counter read after an
+`await`), `T-SR-0` (a fixture sharing a session with the code under
+test), `T-CM-1` (an outcome achievable by a forbidden mechanism), and
+`T-SC-0` (fixture data living inside the same rollback the assertion
+was observing). None were visible from reading the test; all six were
+found only by deliberately removing the thing under test and watching
+for red. This is the single methodological thread that ran through the
+entire project, and it justified itself as a standing rule rather than
+a story worth repeating, every time it was applied again.
+
+**"Make the safe thing structural, not a thing to remember" is the
+other thread.** Route guarding as a group instead of per-route wrappers;
+server-controlled fields stripped centrally (`XC-8`) rather than
+per-endpoint; visibility resolved as a `Depends()` ahead of body
+validation and role checks alike, never as a handler-body statement;
+one canonical module or type per shared concern (`visibility.py`,
+`names.ts`, `datetime.ts`, `Priority`/`StatusName`, `PageQuery`) instead
+of a copy per caller. Each of these turns a rule that's easy to forget
+into one that's structurally impossible to violate by accident.
+
+**What's still deliberately absent**, restated once here rather than
+scattered: no assignment path, no `PATCH`, no admin-promotion endpoint,
+no sort or search on the dashboard, no `?requestor_id=me`. Every one of
+these is a real, named gap with a reason tied to "no consumer yet," not
+an oversight — worth revisiting the moment a concrete feature (an admin
+UI, the Phase 5 chatbot) actually needs one of them, and not before.
+
+**The `tasks.md`/`task-log.md` split held.** Every task since the Group
+2 checkpoint wrote its own retrospective into `task-log.md` and kept
+`tasks.md` to Scope and Acceptance criteria, without further
+intervention — including this task, which correctly deferred the
+close-out rather than guessing at conventions from a stale read.

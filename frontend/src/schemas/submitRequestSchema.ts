@@ -3,8 +3,9 @@ import { z } from 'zod'
 /**
  * Submit Service Request form shape. Reconciled against
  * specs/api-phase/requirements.md (SR-6 to SR-9) in T-SR-1, which is the
- * permanent source of truth for these constraints — there is still no
- * openapi.yaml in the repo, and that forward-reference is retired.
+ * permanent source of truth for these constraints. The prototype phase's
+ * forward reference to an openapi.yaml is retired; the generated
+ * backend/openapi.json (T-DOCS-0) does not displace requirements.md here.
  *
  *   - title       — non-empty, at most 200 characters
  *   - description — non-empty, at most 1000 characters

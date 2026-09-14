@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.api.errors import register_exception_handlers
 from app.api.middleware import register_middleware
+from app.api.openapi import use_corrected_openapi
 from app.api.routes.auth import router as auth_router
 from app.api.routes.comments import router as comments_router
 from app.api.routes.service_requests import router as service_requests_router
@@ -29,12 +30,39 @@ API_V1_PREFIX = "/api/v1"
 health_router = APIRouter(tags=["health"])
 
 
-@health_router.get("/health")
+# The only response in the API that is *not* the error envelope: this one is
+# built by the handler as a plain JSONResponse rather than raised, so it never
+# reaches `register_exception_handlers`. Declared with its own content so that
+# `app/api/openapi.py` leaves it alone — documenting it as an envelope would be
+# the same class of untruth this task exists to fix.
+DB_UNREACHABLE_RESPONSE = {
+    "description": "Returned when the database cannot be reached.",
+    "content": {
+        "application/json": {
+            "schema": {
+                "type": "object",
+                "required": ["status", "db"],
+                "properties": {
+                    "status": {"type": "string", "enum": ["error"]},
+                    "db": {"type": "string", "enum": ["unreachable"]},
+                },
+            },
+            "example": {"status": "error", "db": "unreachable"},
+        }
+    },
+}
+
+
+@health_router.get("/health", summary="Liveness probe")
 def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@health_router.get("/health/db")
+@health_router.get(
+    "/health/db",
+    summary="Database connectivity probe",
+    responses={503: DB_UNREACHABLE_RESPONSE},
+)
 def health_db(db: Session = Depends(get_db)):
     try:
         db.execute(text("SELECT 1"))
@@ -64,6 +92,11 @@ def create_app() -> FastAPI:
     app.include_router(comments_router, prefix=API_V1_PREFIX)
     # The second sub-resource, mounted for the same reason and after it.
     app.include_router(status_changes_router, prefix=API_V1_PREFIX)
+    # Last, because it introspects the mounted routes to document the auth,
+    # CSRF and error-envelope behaviour that lives in the wiring above rather
+    # than in any route signature (T-DOCS-0). Documentation only — it reads the
+    # app and changes nothing the app serves.
+    use_corrected_openapi(app)
     return app
 
 

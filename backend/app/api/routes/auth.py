@@ -124,10 +124,18 @@ def _revoke_all_active_tokens(db: Session, user_id: uuid.UUID) -> None:
 # --- endpoints ---------------------------------------------------------------
 
 
+# Each route below declares only the error statuses that are *not* structural:
+# `app/api/openapi.py` derives 401-when-authenticated, 403-on-write, 404-on-a
+# path resource, 422 and 500 from the route itself. A declared description is a
+# cause fragment, not a sentence — see that module's `_render_reasons`.
 @router.post(
     "/register",
     status_code=status.HTTP_201_CREATED,
     response_model=RegisteredUser,
+    summary="Register an account",
+    responses={
+        409: {"description": "that email address is already registered (AUTH-2)"}
+    },
 )
 def register(payload: RegisterRequest, db: Session = Depends(get_db)) -> User:
     """Create an account (AUTH-1 through AUTH-5, AUTH-16).
@@ -168,7 +176,20 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)) -> User:
     return user
 
 
-@router.post("/login", response_model=SessionUser)
+@router.post(
+    "/login",
+    response_model=SessionUser,
+    summary="Sign in and start a session",
+    responses={
+        401: {
+            "description": (
+                "the credentials are rejected — an unknown address, a wrong "
+                "password and a deactivated account are answered identically "
+                "(AUTH-7, AUTH-8)"
+            )
+        }
+    },
+)
 def login(
     payload: LoginRequest, response: Response, db: Session = Depends(get_db)
 ) -> User:
@@ -198,7 +219,11 @@ def login(
     return user
 
 
-@router.get("/me", response_model=SessionUser)
+@router.get(
+    "/me",
+    response_model=SessionUser,
+    summary="The signed-in user",
+)
 def me(user: User = Depends(get_current_user)) -> User:
     """Who is signed in (AUTH-14, AUTH-15).
 
@@ -213,7 +238,24 @@ def me(user: User = Depends(get_current_user)) -> User:
     return user
 
 
-@router.post("/refresh", response_model=SessionUser)
+@router.post(
+    "/refresh",
+    response_model=SessionUser,
+    summary="Rotate the session cookies",
+    responses={
+        401: {
+            "description": (
+                "the refresh cookie is absent, unknown, expired, already "
+                "rotated, or belongs to a user who is gone or deactivated "
+                "(AUTH-9 to AUTH-11)"
+            )
+        }
+    },
+    # This is the one route the access-token cookie does not gate — it exists
+    # for the case where that token has expired — so the structural rule in
+    # `app/api/openapi.py` cannot infer its credential. Stated here instead.
+    openapi_extra={"security": [{"refreshTokenCookie": []}]},
+)
 def refresh(
     request: Request, response: Response, db: Session = Depends(get_db)
 ) -> User:
@@ -266,7 +308,14 @@ def refresh(
     return user
 
 
-@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+@router.post(
+    "/logout",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="End the session",
+    # No 401 is declared, and none is derived either: AUTH-13 makes logout
+    # idempotent, so this route deliberately does not depend on
+    # `get_current_user` and always answers 204.
+)
 def logout(request: Request, db: Session = Depends(get_db)) -> Response:
     """End the session (AUTH-12, AUTH-13). Always ``204``.
 

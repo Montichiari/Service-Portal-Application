@@ -266,6 +266,49 @@ exception handler inward** — it would gain CORS automatically but lose
 stack are still caught. The current arrangement is the resolution of a
 real tension between two requirements, not an oversight.
 
+### OpenAPI
+
+The served document is post-processed by `app/api/openapi.py`, wired in
+`create_app()` (T-DOCS-0). FastAPI's own derivation gets three things wrong
+or missing here — it documents `{"detail": [...]}` where
+`register_exception_handlers` actually sends design.md §1's envelope, it
+cannot see a cookie read off the raw `Request`, and it cannot see a CSRF
+check that runs in middleware ahead of routing — so the fix is one pass over
+the generated document rather than an annotation on each route.
+
+**A new route gets its structural error statuses for free and must not
+restate them.** `401` (behind `get_current_user`, at any dependency depth),
+`403` (any non-`GET`/`HEAD`/`OPTIONS` method, and any `require_role` gate),
+`404` (any path parameter), `422` (wherever one is genuinely reachable) and
+`500` (everywhere) are derived from the route's own dependency tree and path.
+Same reasoning as the CSRF check being middleware: the one route that forgot
+to opt in would be the one that mattered.
+
+What a route *does* declare, in its decorator:
+
+- `summary=` — one line, always.
+- `responses={<status>: {"description": "<cause fragment>"}}` for any error
+  the structure can't imply: AUTH-2's `409`, AUTH-7's `401`, CM-7's `403`.
+  The description is a **sentence fragment naming the cause**, not a
+  sentence — `openapi.py` renders it, and composes it with the structural
+  reasons for the same status rather than replacing them.
+- A `responses=` entry *with* `content` if the response genuinely isn't the
+  envelope. `/health/db`'s `503` is the only one: it is a plain
+  `JSONResponse` built in the handler, so it never reaches the exception
+  handlers, and documenting it as an envelope would be the same untruth this
+  whole pass exists to remove.
+
+Two things to know before touching it. **Every pass must stay idempotent** —
+it mutates FastAPI's cached document in place, so a second call must not
+append a second `X-Requested-With` parameter or re-render a description onto
+itself. That is why route-declared fragments are read off `route.responses`
+and never off the operation the pass has already rewritten; reading them back
+silently dropped AUTH-2's `409` wording on the second pass, and was stable
+from the third on, which is the kind of defect a test comparing two late
+passes cannot see. And **`backend/openapi.json` is generated, never
+hand-edited**: regenerate with `python -m app.api.openapi` from `backend/`,
+which `tests/api/test_openapi.py` pins against the served document.
+
 ### Email handling
 
 Email addresses are case-folded to lowercase through a single shared
@@ -383,21 +426,26 @@ comment out the constraint, confirm the test goes red, then restore it. A
 constraint test that has never been observed to fail is not verified,
 only written.
 
-**This rule has now caught a real defect four times across this project**,
-in four different disguises: a tamper test that corrupted a token's
+**This rule has now caught a real defect six times across this project**,
+in six different disguises: a tamper test that corrupted a token's
 encoding rather than its meaning, so it failed before reaching the check
 it named (`T-AUTH-1`); a cookie-expiry assertion that computed its
 expected value from the constant under test, so changing that constant
 kept it green (`T-AUTH-3`); a Playwright route handler that read a shared
 counter back after an `await`, so the delay it existed to impose never
-applied (`T-DEBT-3`); and an N+1 test that passed with every `joinedload`
+applied (`T-DEBT-3`); an N+1 test that passed with every `joinedload`
 removed, because its fixture shared a session with the code under test
-(`T-SR-0`). The pattern underneath is always the same — **the test
-passes, and would keep passing, without the thing it names ever being
-true** — and reading the test never reveals it. Only removing the subject
-and watching for red does. Apply this hardest to tests involving timing,
-concurrency, or shared mutable state, where the failure is invisible by
-construction.
+(`T-SR-0`); a "no full reload" criterion whose visibility assertion alone
+couldn't tell a correct append from a page reload that also ended with
+the comment on screen (`T-CM-1`); and an atomicity test whose fixture
+lived inside the same rollback savepoint the assertion was observing, so
+it couldn't distinguish a correctly-scoped rollback from the whole test
+tearing down anyway (`T-SC-0`). The pattern underneath is always the
+same — **the test passes, and would keep passing, without the thing it
+names ever being true** — and reading the test never reveals it. Only
+removing the subject and watching for red does. Apply this hardest to
+tests involving timing, concurrency, or shared mutable state, where the
+failure is invisible by construction.
 
 ### Session isolation in tests
 

@@ -3,7 +3,8 @@ import { z } from 'zod'
 /**
  * Comment composer shape, reconciled against specs/api-phase/requirements.md
  * (CM-5, CM-6) in T-CM-1 — the permanent source of truth for these
- * constraints, there being no openapi.yaml in the repo.
+ * constraints. The generated backend/openapi.json (T-DOCS-0) reports what the
+ * API currently enforces; it does not replace requirements.md here.
  *
  *   - body        — non-empty, at most 5000 characters
  *   - is_internal — admin-only in the UI, enforced server-side by CM-7

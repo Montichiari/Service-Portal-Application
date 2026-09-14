@@ -2,8 +2,9 @@ import { z } from 'zod'
 
 /**
  * Register form shape, reconciled field-for-field against requirements.md
- * AUTH-1/AUTH-3/AUTH-16 (there is still no openapi.yaml — requirements.md is
- * the permanent source of truth here, per frontend/CLAUDE.md's Form pattern).
+ * AUTH-1/AUTH-3/AUTH-16 — requirements.md is the permanent source of truth
+ * here, per frontend/CLAUDE.md's Form pattern, and the generated
+ * backend/openapi.json (T-DOCS-0) does not displace it.
  *
  * `first_name` / `last_name` are snake_case because this schema mirrors
  * `POST /auth/register`'s body exactly — the Naming exception, not a slip.

@@ -3,8 +3,17 @@
 > Informed by `backend/specs/backend-phase/design.md` (locked schema) and
 > `frontend-contract.md` (as-is frontend assumptions), the same way the
 > backend `design.md` was informed by the ERD. This document is the source
-> of truth until `openapi.yaml` is generated from it; where they disagree,
-> this document wins and `openapi.yaml` needs updating.
+> of truth for intent; where it and the generated spec disagree, this
+> document wins and the spec needs correcting.
+>
+> The spec now exists, as `backend/openapi.json` rather than the
+> `openapi.yaml` this header originally anticipated (T-DOCS-0 — JSON is what
+> `/openapi.json` serves, so the checked-in file and the served document can
+> be compared without a format conversion in between). It is **generated, not
+> written**: regenerate with `python -m app.api.openapi` from `backend/`, and
+> never hand-edit it. It describes what the code does; this document
+> describes what the code is meant to do, and the two are not the same
+> artifact.
 
 ## 0. Reconciliation decisions (this document, beyond the four already locked)
 

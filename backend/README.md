@@ -39,6 +39,25 @@ The API is then available at http://127.0.0.1:8000
   (returns HTTP 503 if Postgres is unreachable)
 - Interactive docs: http://127.0.0.1:8000/docs
 
+## API documentation
+
+Swagger UI is at `/docs`, ReDoc at `/redoc`, and the raw document at
+`/openapi.json`. It describes the real contract — the error envelope, each
+route's actual error statuses, the session cookies, and the
+`X-Requested-With` header every write must carry.
+
+The same document is checked in as `openapi.json`. It is **generated, never
+hand-edited**; regenerate it after any change to a route's path, parameters,
+schemas or declared responses:
+
+```powershell
+python -m app.api.openapi
+```
+
+`tests/api/test_openapi.py` fails if the checked-in file and the served
+document disagree, so a forgotten regeneration shows up as a red test rather
+than as a stale file.
+
 ## Tests
 
 The schema contract tests (`tests/db/`) run against a **real** Postgres

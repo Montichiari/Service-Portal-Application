@@ -100,7 +100,11 @@ def _resolve_status_filter(db: Session, name: str) -> Status:
 # --- endpoints ---------------------------------------------------------------
 
 
-@router.get("", response_model=Page[ServiceRequestOut])
+@router.get(
+    "",
+    response_model=Page[ServiceRequestOut],
+    summary="List service requests visible to the caller",
+)
 def list_service_requests(
     pagination: Pagination = Depends(pagination_params),
     # Named `status_name` in Python and `status` on the wire. The alias is what
@@ -165,7 +169,10 @@ def list_service_requests(
 
 
 @router.post(
-    "", status_code=status.HTTP_201_CREATED, response_model=ServiceRequestOut
+    "",
+    status_code=status.HTTP_201_CREATED,
+    response_model=ServiceRequestOut,
+    summary="File a service request",
 )
 def create_service_request(
     payload: ServiceRequestCreate,
@@ -237,7 +244,11 @@ def create_service_request(
     return ServiceRequestOut.model_validate(created)
 
 
-@router.get("/{request_id}", response_model=ServiceRequestOut)
+@router.get(
+    "/{request_id}",
+    response_model=ServiceRequestOut,
+    summary="Fetch one service request",
+)
 def get_service_request(
     request_id: str,
     user: User = Depends(get_current_user),
