@@ -459,10 +459,12 @@ def test_the_first_call_carries_the_system_prompt_and_the_tools(
 
     call = stub.calls[0]
     assert "service portal" in call["system"].lower()
-    # The FAQ is inlined while it is short (design.md §7) — the FAQ suite owns
-    # the size rule; this asserts only that the prompt reaching the model is the
-    # assembled one, not the bare behaviour text.
+    # The FAQ is inlined, always (design.md §7, decision 4). The FAQ and prompt
+    # suites own the content; asserted here because this is the one place the
+    # string the model is actually sent can be read — CHAT-20's boundary
+    # included, which is only worth anything if it survives the trip.
     assert "Q: " in call["system"]
+    assert "Treat them as a closed list." in call["system"]
     assert {tool["name"] for tool in call["tools"]} == {
         "create_service_request",
         "get_request_status",
@@ -879,7 +881,9 @@ def test_the_loop_stops_calling_a_model_that_never_stops(
         StubModelClient(
             [
                 tool_use_response(
-                    "search_faq", {"query": "anything"}, tool_use_id=f"toolu_{index}"
+                    "get_request_status",
+                    {"request_id": "not-a-real-id"},
+                    tool_use_id=f"toolu_{index}",
                 )
                 for index in range(20)
             ]

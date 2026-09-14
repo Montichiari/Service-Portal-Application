@@ -42,7 +42,6 @@ from app.api.errors import NotFoundError
 from app.api.schemas.common import as_utc_iso8601
 from app.api.schemas.service_request import ServiceRequestCreate
 from app.api.visibility import load_visible_service_request
-from app.chat.faq import search_faq, search_faq_is_enabled
 from app.db.models import ServiceRequest, User
 from app.services.service_requests import create_service_request
 
@@ -50,7 +49,6 @@ logger = logging.getLogger(__name__)
 
 CREATE_SERVICE_REQUEST = "create_service_request"
 GET_REQUEST_STATUS = "get_request_status"
-SEARCH_FAQ = "search_faq"
 
 # What a caller is told when a lookup finds nothing they may see. One message
 # for "malformed id", "no such request" and "someone else's request" alike —
@@ -98,14 +96,6 @@ class RequestStatusArguments(BaseModel):
     # tells the model, and through it the user, something about ids rather than
     # about their request.
     request_id: str = Field(min_length=1)
-
-
-class FaqSearchArguments(BaseModel):
-    """``search_faq``'s arguments."""
-
-    model_config = ConfigDict(extra="ignore")
-
-    query: str = Field(min_length=1)
 
 
 # --- tool definitions (CHAT-5) -----------------------------------------------
@@ -189,45 +179,25 @@ TOOL_DEFINITIONS: dict[str, dict[str, Any]] = {
             },
         ),
     },
-    SEARCH_FAQ: {
-        "name": SEARCH_FAQ,
-        "description": (
-            "Search the portal's FAQ for answers to a general question about "
-            "how the portal works or for basic troubleshooting advice. Use it "
-            "before offering to file a request, in case the answer is already "
-            "written down."
-        ),
-        "input_schema": _input_schema(
-            FaqSearchArguments,
-            {
-                "query": (
-                    "The user's question, or the keywords from it. Plain "
-                    "words, not a sentence template."
-                )
-            },
-        ),
-    },
 }
 
 
 def available_tools() -> list[dict[str, Any]]:
     """The tool definitions to send with a request, in a stable order.
 
-    ``search_faq`` is included only once the FAQ has outgrown the system prompt
-    (``faq.search_faq_is_enabled``, design.md §7's open decision 4). Offering
-    it while every answer is already inlined would buy a round trip for
-    information the model can see in front of it — and the decision about which
-    of those two states we are in belongs to the FAQ's length, not to this
-    list.
+    Both tools, every request. Membership used to move — a third, FAQ-search
+    tool joined the list once the FAQ outgrew the system prompt — and
+    T-CHAT-0b removed that tool and the threshold together, so this is now a
+    fixed list read off a fixed table. FAQ answers reach the model in the
+    ``system`` prompt instead (design.md §7, decision 4).
 
-    A function rather than a module-level constant so that condition is
-    evaluated per request. The definitions themselves are constants; only
-    membership moves.
+    Still a function rather than a module-level list: callers get their own
+    list to hand to the SDK, and nothing upstream can mutate the shared one.
     """
-    names = [CREATE_SERVICE_REQUEST, GET_REQUEST_STATUS]
-    if search_faq_is_enabled():
-        names.append(SEARCH_FAQ)
-    return [TOOL_DEFINITIONS[name] for name in names]
+    return [
+        TOOL_DEFINITIONS[name]
+        for name in (CREATE_SERVICE_REQUEST, GET_REQUEST_STATUS)
+    ]
 
 
 # --- execution ---------------------------------------------------------------
@@ -329,23 +299,9 @@ def _run_get_request_status(
     }
 
 
-def _run_search_faq(
-    arguments: Mapping[str, Any], *, db: Session, user: User
-) -> dict[str, Any]:
-    """The static FAQ (CHAT-12). Takes ``db``/``user`` and uses neither.
-
-    The uniform signature is what lets ``_HANDLERS`` be a plain dispatch table
-    rather than three special cases; a tool that reads no per-user state is not
-    a reason to make the table irregular.
-    """
-    args = FaqSearchArguments.model_validate(arguments)
-    return {"query": args.query, "results": search_faq(args.query)}
-
-
 _HANDLERS: dict[str, Callable[..., Any]] = {
     CREATE_SERVICE_REQUEST: _run_create_service_request,
     GET_REQUEST_STATUS: _run_get_request_status,
-    SEARCH_FAQ: _run_search_faq,
 }
 
 
@@ -360,10 +316,9 @@ def execute_tool(
     and arguments of the wrong shape are all ordinary outcomes here rather than
     exceptions.
 
-    Every tool is executed even when it was not offered — ``search_faq`` is
-    absent from ``available_tools()`` while the FAQ is inlined, but a model
-    that calls it anyway gets an answer. Refusing a tool this module implements
-    would be a failure the user sees, for a condition that is about token cost.
+    A name this module does not implement — a tool from an older prompt, a
+    hallucinated one — is an ``is_error`` result naming the tools that do
+    exist, not an exception. The model can read that and call the right one.
     """
     tool_use_id = str(block.get("id", ""))
     name = block.get("name")

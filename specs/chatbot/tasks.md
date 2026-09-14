@@ -103,18 +103,23 @@ resolved in favor of a fixed, hand-maintained FAQ over an auto-scaling mechanism
 
 **Acceptance criteria**:
 
-- [ ] `CHAT-12`: `FAQ_ENTRIES` contains exactly the 10 finalized entries, verbatim, and nothing
+- [x] `CHAT-12`: `FAQ_ENTRIES` contains exactly the 10 finalized entries, verbatim, and nothing
       else
-- [ ] `search_faq`, `search_faq_is_enabled`, and `INLINE_LIMIT` do not appear anywhere in the
+- [x] `search_faq`, `search_faq_is_enabled`, and `INLINE_LIMIT` do not appear anywhere in the
       codebase — verified by grep, not just by a passing test suite
-- [ ] The system prompt is now built unconditionally — no branch on FAQ entry count anywhere
-- [ ] `CHAT-20`: the system prompt text includes the explicit "these 10 are everything I know"
+- [x] The system prompt is now built unconditionally — no branch on FAQ entry count anywhere
+- [x] `CHAT-20`: the system prompt text includes the explicit "these 10 are everything I know"
       boundary — check the literal string sent to the model, not just that a test asserting its
       presence exists
-- [ ] `create_service_request` and `get_request_status`'s existing `T-CHAT-0` tests still pass
+- [x] `create_service_request` and `get_request_status`'s existing `T-CHAT-0` tests still pass
       unchanged — this task touches FAQ and prompt-building only
 - [ ] Full suite green afterward, with fewer total tests than `T-CHAT-0` left (the deleted
-      `search_faq` tests should be gone, not passing vacuously)
+      `search_faq` tests should be gone, not passing vacuously) — **green, count unchanged at
+      344.** The seven FAQ-search and threshold tests are gone; four CHAT-20 prompt tests and
+      three FAQ-content tests replaced them, which this task's own scope required. Left unticked
+      rather than reworded, since the criterion as written says "fewer"
+
+**Complete.** See `task-log.md#t-chat-0b`.
 
 ### T-CHAT-1 — Live Anthropic integration (orchestration loop)
 

@@ -3,41 +3,29 @@
 Not a database table, and that is a requirement rather than a shortcut: FAQ
 copy is reviewed, diffed and rolled back like any other text in the repo, and
 it has no per-row lifecycle a table would be managing. A ``faqs`` table would
-also make the answers editable in an environment where nobody reviews them —
+also make the answers editable in an environment where nobody reviews them --
 which, for text the assistant repeats verbatim to users, is the wrong
 direction.
 
-**How the FAQ reaches the model depends on its size** (design.md §7, open
-decision 4). Below ``INLINE_LIMIT`` entries it is inlined into the system
-prompt, which costs those tokens on every message but answers FAQ questions
-with no extra round trip. Past it, inlining stops paying and the ``search_faq``
-tool takes over. ``search_faq_is_enabled()`` derives that from the list's
-actual length rather than from a flag someone has to remember to flip, so the
-switchover happens when the condition the decision names is true rather than
-when someone notices it is.
+**The ten entries below are always inlined into the system prompt**
+(design.md §7, decision 4). There is no size threshold and no FAQ-search tool:
+both existed while decision 4 was open, and both were removed in ``T-CHAT-0b``
+once it closed in favour of a fixed, hand-maintained set. This is not a
+scaled-down version of a bigger mechanism — it is the answer for a FAQ that
+changes when a person edits it. If the list ever genuinely outgrows a
+system prompt, that is a human-noticed event that gets its own task and its own
+justification, not a threshold running quietly in the background for a
+condition that may never be met.
+
+The entries are copied verbatim from design.md §7, in its order.
+``app/chat/prompt.py`` states the grounding boundary that goes with them
+(CHAT-20): these ten are the whole of what the assistant knows, and a question
+outside them is one to decline rather than improvise on.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-
-# design.md §7 puts the switchover at "roughly 15-20 entries". 15 is the low
-# end of that range: the cost of inlining is paid on every single message,
-# while the cost of being wrong in the other direction is one extra round trip
-# on FAQ questions only.
-INLINE_LIMIT = 15
-
-# Tokens too common to distinguish one entry from another. Kept tiny on
-# purpose — this is a keyword match over a handful of hand-written entries, not
-# a search engine, and every word removed here is a word a user cannot match
-# on.
-_STOPWORDS = frozenset(
-    {
-        "a", "an", "and", "are", "as", "at", "be", "by", "can", "do", "does",
-        "for", "from", "get", "how", "i", "in", "is", "it", "me", "my", "of",
-        "on", "or", "the", "to", "what", "when", "where", "who", "why", "with",
-    }
-)
 
 
 @dataclass(frozen=True)
@@ -50,154 +38,107 @@ class FaqEntry:
 
 FAQ_ENTRIES: tuple[FaqEntry, ...] = (
     FaqEntry(
-        question="How do I file a service request?",
+        question="How do I reset my password?",
         answer=(
-            "Use the New request button in the portal, or just describe the "
-            "problem here and the assistant will file it for you. A request "
-            "needs a short title, a description of what is wrong, and a "
-            "priority of low, medium or high."
+            "Use the \"Forgot password\" link on the sign-in page to reset it "
+            "yourself. If you don't have access to your recovery email, "
+            "submit a ticket and IT will reset it manually — this usually "
+            "takes under an hour during business hours."
         ),
     ),
     FaqEntry(
-        question="What do the request statuses mean?",
+        question="My VPN won't connect. What should I try first?",
         answer=(
-            "Open means the request has been received and is waiting to be "
-            "picked up. In progress means someone is working on it. Resolved "
-            "means the work is done. Closed means the request is finished and "
-            "no further action is expected."
+            "Restart the VPN client, confirm you're on a working internet "
+            "connection, and make sure your VPN app is on the latest "
+            "version. If it still won't connect after that, submit a ticket "
+            "with the error message you're seeing."
         ),
     ),
     FaqEntry(
-        question="How do I choose a priority?",
+        question="How do I request new software be installed on my computer?",
         answer=(
-            "High is for work that is blocked right now with no workaround. "
-            "Medium is for something broken that you can work around. Low is "
-            "for requests that are not urgent, such as an improvement or a "
-            "question."
+            "Submit a service request with the software name and a short "
+            "reason for the request. Most standard business software is "
+            "approved within a day; anything outside the approved list "
+            "needs manager sign-off first."
         ),
     ),
     FaqEntry(
-        question="How do I check the status of a request I filed?",
+        question="My printer isn't working. What should I check?",
         answer=(
-            "Open the request from your dashboard, or ask here with the "
-            "request id and the assistant will look it up. You can only see "
-            "requests you filed; administrators can see all of them."
+            "Confirm the printer is powered on and connected to the "
+            "network, then try removing and re-adding it in your system's "
+            "printer settings. If a specific print job is stuck, cancel and "
+            "resend it. Still stuck? Submit a ticket with the printer's "
+            "name or location."
         ),
     ),
     FaqEntry(
-        question="Who can see my service requests?",
+        question="How do I connect to the office Wi-Fi?",
         answer=(
-            "You and the portal administrators. Other users cannot see your "
-            "requests, and comments marked internal are visible to "
-            "administrators only."
+            "Select the office network from your Wi-Fi settings and sign in "
+            "with your usual company username and password. If it doesn't "
+            "accept your credentials, your account may need to be added to "
+            "the Wi-Fi group — submit a ticket and we'll sort it out."
         ),
     ),
     FaqEntry(
-        question="Can I change or delete a request after filing it?",
+        question="My computer won't turn on. What should I do?",
         answer=(
-            "Not yet. Requests cannot be edited or deleted from the portal at "
-            "the moment. Add a comment on the request with the correction and "
-            "an administrator will pick it up."
+            "Check the power cable and outlet, and hold the power button "
+            "for about 10 seconds in case it's frozen. If there's still no "
+            "response, submit a ticket marked high priority so we can get "
+            "you a loaner while we look into it."
         ),
     ),
     FaqEntry(
-        question="My computer will not turn on. What should I try first?",
+        question="How do I submit a new IT service request?",
         answer=(
-            "Check that the power cable is seated at both ends and that the "
-            "outlet works. On a laptop, hold the power button for ten seconds, "
-            "release, then press it once. If there is still no light and no "
-            "fan noise, file a high priority request describing what you "
-            "tried."
+            "You can ask the assistant to create one directly — just "
+            'describe the issue — or use the "Submit Request" page from '
+            "the dashboard. Either way, a clear title and description "
+            "helps it get picked up faster."
         ),
     ),
     FaqEntry(
-        question="I cannot connect to the wifi or the VPN. What should I try?",
+        question="How can I check the status of an existing ticket?",
         answer=(
-            "Turn wifi off and on again, then forget the network and rejoin "
-            "it. For the VPN, sign out fully and sign back in, and check the "
-            "clock on your machine is correct. If it still fails, file a "
-            "request and include any error message word for word."
+            "Ask the assistant for the status directly, or check it any "
+            "time from the dashboard, where every submitted request is "
+            "listed with its current status."
         ),
     ),
     FaqEntry(
-        question="I forgot my password. How do I reset it?",
+        question="What's the typical response time for a support ticket?",
         answer=(
-            "Use the forgotten password link on the sign-in page if your "
-            "organisation has one enabled. Otherwise file a request and an "
-            "administrator will reset it. Never share your password with "
-            "anyone, including this assistant."
+            "Most tickets get a first response within one business day. "
+            "High-priority issues — like a completely inaccessible computer "
+            "— are typically picked up faster; if something's urgent, say "
+            "so in the description."
         ),
     ),
     FaqEntry(
-        question="How long will my request take?",
+        question=(
+            "My email isn't syncing, or I'm not receiving new "
+            "messages. What should I check?"
+        ),
         answer=(
-            "There is no committed response time in the portal today. High "
-            "priority requests are picked up first. You can check progress at "
-            "any time from your dashboard or by asking here."
+            "Check the internet connection first, then confirm the mailbox "
+            "isn't near its storage limit. If neither explains it, submit a "
+            "ticket — this is sometimes a sync issue on the server side."
         ),
     ),
 )
 
 
-def search_faq(query: str, *, limit: int = 3) -> list[dict[str, str]]:
-    """The entries best matching ``query``, best first.
-
-    A keyword overlap count, not a ranking model: every word of the query that
-    survives ``_STOPWORDS`` and appears in an entry scores one, and entries
-    scoring zero are dropped rather than padded in. With a list this small that
-    is both sufficient and — the reason it is written this way — entirely
-    deterministic, so the ``search_faq`` tool can be asserted against exact
-    output like everything else in the suite.
-
-    Returns plain dicts because the caller serialises the result into a
-    ``tool_result`` block; a dataclass would only be converted there instead.
-    """
-    terms = {
-        term
-        for term in "".join(
-            char if char.isalnum() else " " for char in query.lower()
-        ).split()
-        if term not in _STOPWORDS
-    }
-    if not terms:
-        return []
-
-    scored: list[tuple[int, int, FaqEntry]] = []
-    for index, entry in enumerate(FAQ_ENTRIES):
-        haystack = f"{entry.question} {entry.answer}".lower()
-        score = sum(1 for term in terms if term in haystack)
-        if score:
-            # `index` rides along as a tiebreaker so equally scoring entries
-            # come back in the order they are written above, rather than in
-            # whatever order the sort happens to leave them.
-            scored.append((score, index, entry))
-
-    scored.sort(key=lambda row: (-row[0], row[1]))
-    return [
-        {"question": entry.question, "answer": entry.answer}
-        for _, _, entry in scored[:limit]
-    ]
-
-
-def search_faq_is_enabled() -> bool:
-    """Whether the ``search_faq`` tool is offered to the model (decision 4).
-
-    Derived from the FAQ's length rather than hand-set, so design.md §7's rule —
-    inline while it is small, switch to the tool once it is not — is enforced by
-    the condition itself. Adding the sixteenth entry turns the tool on and takes
-    the FAQ out of the system prompt in the same commit that adds the entry.
-
-    The tool's *implementation* is not gated by this. ``search_faq`` executes
-    whether or not it was offered, so a model that calls it anyway gets an
-    answer rather than an error, and the function stays directly testable.
-    """
-    return len(FAQ_ENTRIES) > INLINE_LIMIT
-
-
 def faq_prompt_section() -> str:
-    """The FAQ as system-prompt text, or an empty string once it is too long."""
-    if search_faq_is_enabled():
-        return ""
+    """The FAQ as system-prompt text.
+
+    Unconditional: every entry, every time. The branch that used to live here
+    asked whether the list had outgrown inlining, which is the mechanism
+    decision 4 removed.
+    """
     return "\n\n".join(
         f"Q: {entry.question}\nA: {entry.answer}" for entry in FAQ_ENTRIES
     )

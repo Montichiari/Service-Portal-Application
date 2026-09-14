@@ -17,16 +17,17 @@ from app.api.schemas.service_request import ServiceRequestCreate
 from app.chat.tools import (
     CREATE_SERVICE_REQUEST,
     GET_REQUEST_STATUS,
-    SEARCH_FAQ,
     TOOL_DEFINITIONS,
     available_tools,
 )
 
-# design.md §4's table, as the names it fixes.
-EXPECTED_TOOLS = {CREATE_SERVICE_REQUEST, GET_REQUEST_STATUS, SEARCH_FAQ}
+# design.md §4's table, as the names it fixes. Two, since T-CHAT-0b: CHAT-5
+# says "no FAQ-search tool", and this is the assertion that keeps one from
+# reappearing — an extra definition here is a tool offered to the model.
+EXPECTED_TOOLS = {CREATE_SERVICE_REQUEST, GET_REQUEST_STATUS}
 
 
-def test_design_md_s_three_tools_are_defined() -> None:
+def test_design_md_s_two_tools_are_defined_and_no_others() -> None:
     assert set(TOOL_DEFINITIONS) == EXPECTED_TOOLS
 
 
@@ -84,7 +85,7 @@ def test_the_create_tool_exposes_no_identity_argument() -> None:
     a model would fill in, and a reader would have to check the handler to find
     out it meant nothing.
     """
-    for name in (CREATE_SERVICE_REQUEST, GET_REQUEST_STATUS, SEARCH_FAQ):
+    for name in (CREATE_SERVICE_REQUEST, GET_REQUEST_STATUS):
         properties = TOOL_DEFINITIONS[name]["input_schema"]["properties"]
         assert not {"user_id", "requestor_id", "assignee", "assignee_id", "role"} & set(
             properties
@@ -103,9 +104,17 @@ def test_the_class_name_and_docstring_do_not_leak_into_the_schema() -> None:
     assert "description" not in schema
 
 
-def test_available_tools_is_a_stable_ordered_list() -> None:
+def test_available_tools_offers_every_defined_tool_in_a_stable_order() -> None:
+    """Since T-CHAT-0b the offered list and the definitions cannot differ.
+
+    Membership used to be conditional, which is what made "defined" and
+    "offered" two separate things worth asserting separately. They are one
+    thing now, and this pins that: a definition added without being offered is
+    a tool the model never sees, which is the quiet half of the old bug.
+    """
     assert [tool["name"] for tool in available_tools()] == [
         CREATE_SERVICE_REQUEST,
         GET_REQUEST_STATUS,
     ]
+    assert {tool["name"] for tool in available_tools()} == set(TOOL_DEFINITIONS)
     assert available_tools() == available_tools()

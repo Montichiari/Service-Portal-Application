@@ -865,3 +865,72 @@ and `msg` only — never Pydantic's `input`/`ctx` — and why the catch-all
 message is content-free. It is the same rule `validation_error_fields`
 follows for XC-4, arriving at a channel where the audience is a model
 that will read the string out loud.
+
+### T-CHAT-0b
+
+**Complete.** Removal, not a disable: `search_faq`, `search_faq_is_enabled`
+and `INLINE_LIMIT` are gone from `app/` and `tests/` — no symbol, no string,
+no test. The suite is green at 344, the same number `T-CHAT-0` left, and that
+is worth stating plainly because the acceptance criterion asked for *fewer*:
+seven tests went (four exercising the keyword search, three exercising the
+threshold), and seven arrived (four on CHAT-20's boundary, three on the FAQ's
+content and its unconditional path into the prompt). The criterion's intent —
+the search tests should be gone rather than left passing vacuously — is met;
+its literal wording is not, so its box is left unticked in `tasks.md` rather
+than quietly reworded.
+
+**The FAQ content is compared against `design.md`, not against a second copy
+of itself.** "Copied verbatim" is a claim about the relationship between the
+module and the design document, and the obvious test — paste the ten answers
+into the test file and assert equality — is two transcriptions of one source.
+It passes whenever they drift together and fails whenever someone fixes a typo
+in only one, which is the wrong way round for both. `tests/chat/test_faq.py`
+parses §7's numbered list out of the document and asserts the module equals it,
+order included. The entries were generated the same way rather than retyped, so
+the wrapping in `faq.py` is the only thing a human chose.
+
+**The boundary is asserted as the words the model receives.** CHAT-20 is a
+requirement about a string reaching Anthropic, so importing `_FAQ_BOUNDARY` and
+asserting it appears in `build_system_prompt()` would be asserting that a
+variable is referenced — green even if the paragraph were emptied to `""`.
+`tests/chat/test_system_prompt.py` writes the phrases out literally, and
+`tests/api/test_chat.py`'s existing first-call test now also reads "Treat them
+as a closed list." off `stub.calls[0]["system"]`, which is the only place in
+the suite where the actual argument to the client is observable.
+
+**Ordering is part of the requirement, so it is pinned.** The boundary says
+"Those ten questions and answers are everything you know" — a sentence that
+refers to something, and refers to nothing if it is rendered above the list.
+Every substring assertion in the file would still pass in that arrangement, so
+`test_the_boundary_follows_the_entries_it_describes` compares the two
+positions in the rendered prompt directly.
+
+**Five mutations, all caught, tree verified clean afterward:** the boundary
+dropped from the returned prompt (4 red, including the API-level one); one FAQ
+answer paraphrased by a single word (1 red); two entries swapped with content
+untouched (1 red — the order half of the criterion); a third tool definition
+added to `TOOL_DEFINITIONS` without being offered (2 red); and
+`faq_prompt_section` emptied (3 red). The fourth is the one worth keeping in
+mind: `available_tools()` is no longer conditional, so "defined" and "offered"
+collapsed into one thing, and `test_available_tools_offers_every_defined_tool`
+now asserts the two sets are equal rather than listing the names twice.
+
+**The loop test lost its driver and needed a real tool.**
+`test_the_loop_stops_calling_a_model_that_never_stops` drove six rounds with a
+fixed `search_faq` call, which after this task is a tool that does not exist —
+still an `is_error` result and still six rounds, so the test would have stayed
+green while silently exercising the unknown-tool path instead of the loop. It
+now calls `get_request_status` with an unresolvable id: a real tool, a real
+`NotFoundError`, and the same six calls. CHAT-19's count is still the literal
+`6`.
+
+**No schema, route or document change.** `backend/openapi.json` was not
+regenerated because the route table did not move; tool definitions are prompt
+material and appear nowhere in the OpenAPI document. `tests/chat/` still needs
+no database — the new prompt suite reads a file and a string.
+
+**Decision 4's entry in `T-CHAT-0`'s retrospective above is now history, not
+current state.** It records the threshold mechanism as the answer ("10 entries
+today, and the rule now enforces itself"); design.md §7 has since replaced it
+with a fixed ten and no mechanism at all. Left as written, since a task log is
+what was believed at the time.
