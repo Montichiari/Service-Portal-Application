@@ -34,9 +34,11 @@ uvicorn app.main:app --reload
 
 The API is then available at http://127.0.0.1:8000
 
-- Health check: http://127.0.0.1:8000/health → `{"status": "ok"}`
-- DB health check: http://127.0.0.1:8000/health/db → `{"status": "ok", "db": "connected"}`
-  (returns HTTP 503 if Postgres is unreachable)
+- Health check: http://127.0.0.1:8000/health → `{"status": "ok", "db": "connected"}`.
+  One probe, not two: it answers `200` only after a live database round-trip
+  succeeds, and `503` with `{"status": "error", "db": "unreachable"}` otherwise
+  (DO-22). The former memory-only `/health` and the former `/health/db` were
+  folded into it in T-DO-0.
 - Interactive docs: http://127.0.0.1:8000/docs
 
 ## API documentation

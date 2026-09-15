@@ -24,7 +24,7 @@ wouldn't.
 | 1 — Foundations & Project Setup     | `specs/backend-phase/`  | Complete    |
 | 2 — Frontend Development            | `specs/frontend-phase/` | Complete    |
 | 3 — Backend Development             | `specs/api-phase/`      | In progress |
-| 4 — DevOps & Cloud Deployment       | —                       | Not started |
+| 4 — DevOps & Cloud Deployment       | `specs/devops-phase/`   | In progress |
 | 5 — AI-Powered Chat Integration     | `specs/chatbot/`        | In progress |
 | 6 — Integration, Testing & Capstone | —                       | Not started |
 
@@ -127,7 +127,45 @@ metered API call; and the Phase 3 logging gap below applies to this
 surface too — a chat exchange that fails mid-loop leaves nothing in a log
 that says which tool or which user.
 
-### Phases 4 and 6
+### Phase 4 — DevOps & Cloud Deployment
+
+Rows added 2026-09-15, the day the phase began (`T-DO-0`), sourced from
+`PROJECT_BRIEF.md`'s own bullets. **One task of nine is done**, and it is
+the smallest: nothing is containerized, no pipeline exists and nothing is
+deployed, so every row below is "not started" and says so. The table is
+here now rather than when there is something to report, because that is
+the mistake this table exists to stop repeating.
+
+Verified against the running code: 376 backend pytest tests green against
+the docker-compose Postgres (368 before this task), and `/health`'s two
+bodies read out of a live uvicorn process rather than a `TestClient` —
+once per broken connection string, and once across a database that goes
+away and comes back.
+
+| Requirement                                                   | Status                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Containerize application using Docker                         | Not started (`T-DO-1`, `T-DO-2`, `T-DO-3`). No `Dockerfile` exists for either app. The existing `docker-compose.yml` containerizes Postgres only, and says so in its own first line — it is the local dev database, not a containerized application                                                                                                                                                                                                                                                            |
+| Create CI/CD pipeline (GitHub Actions/Azure DevOps)           | Not started (`T-DO-5`). No `.github/workflows/` directory. DO-15's smoke-test step now has something to call, which is the whole of what `T-DO-0` contributes here                                                                                                                                                                                                                                                                                                                                            |
+| Configure development and production environments             | Not started (`T-DO-4`). Local Docker Compose is the only environment and is deliberately the only non-production one (DO-16); nothing is provisioned in AWS                                                                                                                                                                                                                                                                                                                                                   |
+| Deploy application to cloud platform (Azure/AWS)              | Not started (`T-DO-4`, `T-DO-7`). AWS by decision 1; nothing provisioned                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| _Deliverable: "Automated deployment pipeline and live application"_ | Not yet — neither half exists                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+
+**`DO-22` maps to no bullet in the brief**, and that is worth recording
+rather than filing under one that nearly fits. `GET /health` is a
+precondition for two things the brief does ask for — the pipeline's
+smoke test (DO-15) and the ALB target group's own checks (DO-5) — not a
+deliverable of its own. It is done: unauthenticated, `200` only after a
+live `SELECT 1` comes back, `503` otherwise, with no connection string,
+driver text or traceback in either body. Verified against a real server
+started with a dead port, a wrong password, a missing database and an
+unresolvable host, and against a database cut mid-life and restored —
+`pool_pre_ping` is what makes that last one recover rather than latch.
+It replaced a pair: the old memory-only `/health` and `/health/db` are
+one route now, because a probe that can answer `200` without reaching
+the database is the failure DO-22 exists to prevent, and leaving it
+mounted beside the real one is how an ALB ends up polling it.
+
+### Phase 6
 
 Not started. Add a phase's rows the day it begins, sourced from
 `PROJECT_BRIEF.md`'s own requirement bullets for that phase — don't

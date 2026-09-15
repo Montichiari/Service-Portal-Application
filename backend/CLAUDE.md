@@ -293,10 +293,11 @@ What a route *does* declare, in its decorator:
   sentence — `openapi.py` renders it, and composes it with the structural
   reasons for the same status rather than replacing them.
 - A `responses=` entry *with* `content` if the response genuinely isn't the
-  envelope. `/health/db`'s `503` is the only one: it is a plain
+  envelope. `/health`'s `503` is the only one: it is a plain
   `JSONResponse` built in the handler, so it never reaches the exception
   handlers, and documenting it as an envelope would be the same untruth this
-  whole pass exists to remove.
+  whole pass exists to remove. (It was `/health/db`'s `503` until T-DO-0
+  merged the two probes into one `/health` — DO-22.)
 
 Two things to know before touching it. **Every pass must stay idempotent** —
 it mutates FastAPI's cached document in place, so a second call must not

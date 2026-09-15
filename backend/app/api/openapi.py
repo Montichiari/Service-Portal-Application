@@ -31,7 +31,7 @@ every route can answer ``500``. None of that is repeated in a decorator, for
 the same reason the CSRF check is middleware rather than a per-route
 dependency: the one route that forgot would be the one that mattered. What is
 *not* structural — AUTH-2's ``409``, AUTH-7's ``401``, CM-7's ``403``,
-``/health/db``'s ``503`` — is declared at the route in ``responses=``, next to
+``/health``'s ``503`` — is declared at the route in ``responses=``, next to
 the code that raises it, as a **cause fragment** rather than a finished
 sentence (see ``_render_reasons``) so that it composes with the structural
 reasons for the same status instead of overwriting them.
@@ -83,7 +83,7 @@ _ERROR_CODES = ", ".join(f"`{code.value}`" for code in ErrorCode)
 
 API_DESCRIPTION = f"""\
 Service portal API. Every path below is mounted under `/api/v1` except the
-`/health` probes, which are operational endpoints outside the contract.
+`/health` probe, which is an operational endpoint outside the contract.
 
 ### Errors
 
@@ -351,7 +351,7 @@ def _correct_operation(
     # is a rendered sentence rather than the fragment it was built from, so a
     # second pass reading the operation back would find nothing left to
     # compose and would silently drop AUTH-2's 409 and CM-7's 403. A response
-    # the route declared *with* content (`/health/db`'s 503, which is not an
+    # the route declared *with* content (`/health`'s 503, which is not an
     # envelope) is not a fragment and is left exactly as declared.
     declared: dict[str, str] = {
         str(status): response["description"]

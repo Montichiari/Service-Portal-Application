@@ -89,8 +89,9 @@ def test_the_document_describes_every_route(spec, route_facts):
     """A guard on every other test here: an empty sweep proves nothing."""
     documented = {(path, method) for path, method, _ in _operations(spec)}
     assert documented == set(route_facts)
-    # 15 through T-DOCS-0, plus the two chat routes T-CHAT-0 added.
-    assert len(documented) == 17
+    # 15 through T-DOCS-0, plus the two chat routes T-CHAT-0 added, minus
+    # `/health/db`, which T-DO-0 folded into `/health` (DO-22).
+    assert len(documented) == 16
 
 
 # --- The 422 shape (the headline correction) ---------------------------------
@@ -264,14 +265,16 @@ def test_the_comment_write_documents_cm7_alongside_csrf(spec):
     assert "CM-7" in description
 
 
-def test_health_db_documents_its_503_with_its_own_body_not_the_envelope(spec):
+def test_health_documents_its_503_with_its_own_body_not_the_envelope(spec):
     """The one error response in the API that is not the envelope.
 
     It is built as a plain ``JSONResponse`` in the handler, so it never reaches
     the exception handlers — documenting it as an envelope would be the same
-    class of untruth this task exists to remove.
+    class of untruth this task exists to remove. Moved from ``/health/db`` to
+    ``/health`` in T-DO-0, when the two probes became one (DO-22); the property
+    under test is unchanged.
     """
-    response = spec["paths"]["/health/db"]["get"]["responses"]["503"]
+    response = spec["paths"]["/health"]["get"]["responses"]["503"]
     schema = response["content"]["application/json"]["schema"]
     assert "$ref" not in schema
     assert set(schema["properties"]) == {"status", "db"}

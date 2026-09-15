@@ -3,7 +3,7 @@
   "info": {
     "title": "Service Portal API",
     "version": "1.0.0",
-    "description": "Service portal API. Every path below is mounted under `/api/v1` except the\n`/health` probes, which are operational endpoints outside the contract.\n\n### Errors\n\nEvery error response — validation failures, auth failures, not-found and\nunhandled crashes alike — uses one envelope:\n\n```json\n{\n  \"error\": {\n    \"code\": \"VALIDATION_ERROR\",\n    \"message\": \"One or more fields are invalid.\",\n    \"fields\": { \"email\": [\"value is not a valid email address\"] }\n  }\n}\n```\n\n`fields` is present only on `VALIDATION_ERROR`, so its presence is meaningful.\n`code` is a closed set: `BAD_REQUEST`, `UNAUTHENTICATED`, `FORBIDDEN`, `NOT_FOUND`, `CONFLICT`, `VALIDATION_ERROR`, `INTERNAL_ERROR`.\n\nEvery operation can additionally answer `500` with an `INTERNAL_ERROR`\nenvelope; its `message` is deliberately content-free and the traceback stays in\nthe server log.\n\n### Authentication\n\nSessions are cookie-based. `POST /api/v1/auth/login` sets `access_token`\n(1 hour) and `refresh_token` (30 days), both `httpOnly`, `Secure` and\n`SameSite=Lax`; the browser attaches them automatically and no client-side\nscript can read them. There is no `Authorization` header and no bearer token.\nOperations marked with a lock require `access_token`;\n`POST /api/v1/auth/refresh` requires `refresh_token` instead, and\nrotates it.\n\n### `X-Requested-With` is required on every write\n\n**Every request whose method is not `GET`, `HEAD` or `OPTIONS` must carry a\n`X-Requested-With` header**, with any non-empty value. It is enforced by\nmiddleware ahead of routing, so a write that omits it is answered `403` /\n`FORBIDDEN` before the route, the body, or the session cookie is looked at. It\nis listed as a required header parameter on every such operation below.\n"
+    "description": "Service portal API. Every path below is mounted under `/api/v1` except the\n`/health` probe, which is an operational endpoint outside the contract.\n\n### Errors\n\nEvery error response — validation failures, auth failures, not-found and\nunhandled crashes alike — uses one envelope:\n\n```json\n{\n  \"error\": {\n    \"code\": \"VALIDATION_ERROR\",\n    \"message\": \"One or more fields are invalid.\",\n    \"fields\": { \"email\": [\"value is not a valid email address\"] }\n  }\n}\n```\n\n`fields` is present only on `VALIDATION_ERROR`, so its presence is meaningful.\n`code` is a closed set: `BAD_REQUEST`, `UNAUTHENTICATED`, `FORBIDDEN`, `NOT_FOUND`, `CONFLICT`, `VALIDATION_ERROR`, `INTERNAL_ERROR`.\n\nEvery operation can additionally answer `500` with an `INTERNAL_ERROR`\nenvelope; its `message` is deliberately content-free and the traceback stays in\nthe server log.\n\n### Authentication\n\nSessions are cookie-based. `POST /api/v1/auth/login` sets `access_token`\n(1 hour) and `refresh_token` (30 days), both `httpOnly`, `Secure` and\n`SameSite=Lax`; the browser attaches them automatically and no client-side\nscript can read them. There is no `Authorization` header and no bearer token.\nOperations marked with a lock require `access_token`;\n`POST /api/v1/auth/refresh` requires `refresh_token` instead, and\nrotates it.\n\n### `X-Requested-With` is required on every write\n\n**Every request whose method is not `GET`, `HEAD` or `OPTIONS` must carry a\n`X-Requested-With` header**, with any non-empty value. It is enforced by\nmiddleware ahead of routing, so a write that omits it is answered `403` /\n`FORBIDDEN` before the route, the body, or the session cookie is looked at. It\nis listed as a required header parameter on every such operation below.\n"
   },
   "paths": {
     "/health": {
@@ -11,49 +11,39 @@
         "tags": [
           "health"
         ],
-        "summary": "Liveness probe",
+        "summary": "Liveness and database-connectivity probe",
+        "description": "Unauthenticated probe. 200 only if a live database round-trip succeeds.",
         "operationId": "health_health_get",
         "responses": {
           "200": {
-            "description": "Successful Response",
+            "description": "Returned when a database round-trip succeeded.",
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": {
-                    "type": "string"
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "ok"
+                      ]
+                    },
+                    "db": {
+                      "type": "string",
+                      "enum": [
+                        "connected"
+                      ]
+                    }
                   },
                   "type": "object",
-                  "title": "Response Health Health Get"
+                  "required": [
+                    "status",
+                    "db"
+                  ]
+                },
+                "example": {
+                  "status": "ok",
+                  "db": "connected"
                 }
-              }
-            }
-          },
-          "500": {
-            "description": "Returned when the request failed for a reason the API does not attribute to the caller — `message` never carries internal detail and the traceback is logged server-side (XC-14).",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/health/db": {
-      "get": {
-        "tags": [
-          "health"
-        ],
-        "summary": "Database connectivity probe",
-        "operationId": "health_db_health_db_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
               }
             }
           },
