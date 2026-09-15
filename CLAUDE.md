@@ -130,21 +130,33 @@ that says which tool or which user.
 ### Phase 4 — DevOps & Cloud Deployment
 
 Rows added 2026-09-15, the day the phase began (`T-DO-0`), sourced from
-`PROJECT_BRIEF.md`'s own bullets. **One task of nine is done**, and it is
-the smallest: nothing is containerized, no pipeline exists and nothing is
-deployed, so every row below is "not started" and says so. The table is
-here now rather than when there is something to report, because that is
-the mistake this table exists to stop repeating.
+`PROJECT_BRIEF.md`'s own bullets; re-verified 2026-09-16 after `T-DO-1`.
+**Two tasks of nine are done**, and they are the two smallest: no pipeline
+exists and nothing is deployed, so every row below except the first is
+still "not started" and says so. The table is here now rather than when
+there is something to report, because that is the mistake this table
+exists to stop repeating.
 
 Verified against the running code: 376 backend pytest tests green against
-the docker-compose Postgres (368 before this task), and `/health`'s two
-bodies read out of a live uvicorn process rather than a `TestClient` —
-once per broken connection string, and once across a database that goes
-away and comes back.
+the docker-compose Postgres (unchanged by `T-DO-1`, which adds no Python),
+`/health`'s two bodies read out of a live uvicorn process rather than a
+`TestClient` — once per broken connection string, and once across a
+database that goes away and comes back — and, new in `T-DO-1`, a built
+backend image exercised end to end against that same Postgres: register →
+login → `/auth/me` → file a request → list it, all through the container.
+
+**The image's "no secrets" claim was verified with a control, not by
+looking.** `docker save` was unpacked and all ten layers (404 MB) grepped
+for the three live values in `backend/.env`: zero hits. On its own that
+proves nothing — a broken grep also finds nothing — so the same scan was
+run against a deliberately poisoned image built with `COPY .env`, which
+hit. Separately, that poisoned `COPY` *fails outright* against the real
+context: `.dockerignore` removes `.env` before the builder sees it, so
+baking the secret in is not something a later edit can do by accident.
 
 | Requirement                                                   | Status                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Containerize application using Docker                         | Not started (`T-DO-1`, `T-DO-2`, `T-DO-3`). No `Dockerfile` exists for either app. The existing `docker-compose.yml` containerizes Postgres only, and says so in its own first line — it is the local dev database, not a containerized application                                                                                                                                                                                                                                                            |
+| Containerize application using Docker                         | **Backend done (`T-DO-1`); frontend (`T-DO-2`) and the prod-like stack (`T-DO-3`) not started.** `backend/Dockerfile` is a two-stage build on `python:3.14-slim` (matching the interpreter dev runs, deliberately), running as uid 10001, 371 MB. DO-3 and DO-4 are met and were checked rather than assumed: with no env injected the container refuses to start naming both `DATABASE_URL` and `JWT_SECRET_KEY`, and pydantic-settings reports `input_value={}` — proof no `.env` was found inside the image, not merely that none was copied; `docker diff` on a container that has served traffic is empty, so the "no log file" half of DO-4 rests on an observation rather than on the absence of a `FileHandler` in the source. Access lines go to stdout, uvicorn's startup and error lines to stderr. **No `HEALTHCHECK`, on purpose**: `/health` is a readiness probe (DO-22) whose whole job is answering 503 when the database is unreachable, and Docker/ECS read a failing `HEALTHCHECK` as liveness — wiring the two together turns a database blip into a restart storm instead of the ALB quietly pulling the task from rotation. The reasoning is recorded in the Dockerfile so a later pass doesn't add one back. Still open, and a gap against DO-1's word "reproducible": `requirements.txt` is unpinned, so the image resolved eight packages to versions ahead of the dev venv (alembic 1.20.0 vs 1.19.1, anthropic 1.6.0 vs 1.5.0, sqlalchemy 2.0.53 vs 2.0.52, uvicorn 0.53.0 vs 0.52.4, and four more). The build is reproducible in structure, not in dependency versions — pinning affects dev and CI too, so it is a decision to take, not a silent fix. The existing `docker-compose.yml` still containerizes Postgres only; `T-DO-3` is what makes a built-image stack exist |
 | Create CI/CD pipeline (GitHub Actions/Azure DevOps)           | Not started (`T-DO-5`). No `.github/workflows/` directory. DO-15's smoke-test step now has something to call, which is the whole of what `T-DO-0` contributes here                                                                                                                                                                                                                                                                                                                                            |
 | Configure development and production environments             | Not started (`T-DO-4`). Local Docker Compose is the only environment and is deliberately the only non-production one (DO-16); nothing is provisioned in AWS                                                                                                                                                                                                                                                                                                                                                   |
 | Deploy application to cloud platform (Azure/AWS)              | Not started (`T-DO-4`, `T-DO-7`). AWS by decision 1; nothing provisioned                                                                                                                                                                                                                                                                                                                                                                                                                                     |

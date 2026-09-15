@@ -1,0 +1,43 @@
+# Build context exclusions for backend/Dockerfile (T-DO-1).
+#
+# Two jobs, and the first one is a security control rather than a size
+# optimisation: DO-3 says no environment-specific config is baked into the
+# image, and `backend/.env` currently holds a live ANTHROPIC_API_KEY and the
+# JWT signing secret. `COPY . .` would put them in a layer that survives every
+# later instruction — deleting the file in a subsequent RUN would not remove
+# it from the image. Excluding it from the context is what makes that
+# impossible rather than merely avoided.
+
+# Secrets and per-developer config. `.env.example` is deliberately NOT
+# excluded here — it holds placeholders only — but nothing in the Dockerfile
+# copies it either.
+.env
+.env.*
+!.env.example
+
+# The developer's virtualenv: wrong platform (Windows), and large.
+.venv/
+
+# Test and eval code. The pipeline (DO-11) runs the suite on the runner
+# against the source tree, not inside this image, so neither belongs in a
+# runtime artifact. `evals/` additionally places billed model calls.
+tests/
+evals/
+pytest.ini
+.pytest_cache/
+
+# Build/VCS noise.
+__pycache__/
+*.pyc
+*.pyo
+.git/
+.gitignore
+.dockerignore
+Dockerfile
+
+# Docs and generated artifacts with no runtime consumer. `openapi.json` is
+# regenerated from the app and pinned by a test; the served document comes
+# from the running app, never from this file.
+README.md
+CLAUDE.md
+openapi.json
