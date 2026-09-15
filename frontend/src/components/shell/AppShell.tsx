@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { ReactNode } from 'react'
 import { LogOutIcon, MenuIcon, XIcon } from 'lucide-react'
 import { Link, useNavigate } from 'react-router-dom'
+import { ChatWidget } from '@/components/chat/ChatWidget'
 import { useAuth } from '@/context/AuthContext'
 import { cn } from '@/lib/utils'
 
@@ -33,6 +34,13 @@ import { cn } from '@/lib/utils'
  * out at all before it. It renders only for a session `GET /auth/me` actually
  * confirmed, so it doubles as the visible proof that a reload kept the
  * session.
+ *
+ * The chat widget (T-CHAT-2) mounts here rather than on each page, per
+ * specs/chatbot/design.md §9 — but note that this shell is itself rendered by
+ * every page, so mounting it here does *not* on its own make it survive a
+ * navigation. `ChatContext` sits above the router and holds everything the
+ * widget shows; see its file header. The widget renders nothing without a
+ * session, which is what keeps it off the public not-found page.
  */
 const NAV_ITEMS = [
   { label: 'Requests Dashboard', to: '/' },
@@ -126,6 +134,7 @@ export function AppShell({ children }: AppShellProps) {
       <main className="min-w-0 flex-1 bg-surface p-4 text-text-primary md:p-8">
         {children}
       </main>
+      <ChatWidget />
     </div>
   )
 }

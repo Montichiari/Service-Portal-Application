@@ -664,3 +664,88 @@ export function createStatusChange(
     { method: 'POST', body: input },
   )
 }
+
+// --- Chat (specs/chatbot/design.md §8) ---------------------------------------
+
+/**
+ * One block of a stored message's `content` array (CHAT-10).
+ *
+ * Deliberately a partial view of Anthropic's block union rather than a
+ * faithful model of it. The backend stores and returns the raw array
+ * (design.md §6) precisely so it can replay blocks it does not understand —
+ * `tool_use`, `tool_result`, and the signed `thinking` blocks Sonnet 5 returns
+ * on some turns — and the widget's job is the opposite one: find the `text`
+ * blocks and ignore the machinery. Typing the rest would be modelling an API
+ * this side never calls.
+ */
+export interface ChatContentBlock {
+  type: string
+  /** Present on `text` blocks. Absent on every other block type. */
+  text?: string
+}
+
+/**
+ * design.md §8's stored message — no conversation id and no author, both by
+ * construction (CHAT-2): each user has exactly one conversation, and every
+ * message in it is either theirs or the assistant's, so `role` says everything
+ * a `UserSummary` would.
+ *
+ * `role` is the Messages API's two-role split, not "who is speaking": a
+ * `tool_result` rides inside a `user` message and a `tool_use` inside an
+ * `assistant` one (design.md §2). Both carry no `text` block, so neither
+ * reaches the transcript.
+ */
+export interface ChatMessage {
+  id: string
+  role: 'user' | 'assistant'
+  content: ChatContentBlock[]
+  created_at: string
+}
+
+/**
+ * CHAT-2, CHAT-10. Ordered oldest first, like comments and status changes and
+ * unlike the dashboard — a conversation reads top to bottom.
+ *
+ * A user who has never sent a message has no conversation row at all (CHAT-1
+ * creates it on first `POST`), so this answers an empty page rather than a
+ * `404`. Nothing is missing; there is simply nothing yet.
+ */
+export function getChatMessages(
+  query: PageQuery = {},
+  signal?: AbortSignal,
+): Promise<Page<ChatMessage>> {
+  return request<Page<ChatMessage>>(`/chat/messages${queryString(query)}`, { signal })
+}
+
+/** CHAT-14's body. The 4000-character ceiling lives in `schemas/chatMessageSchema.ts`. */
+export interface SendChatMessageInput {
+  message: string
+}
+
+/**
+ * `POST /chat/messages`' body — the final assistant text and nothing else
+ * (design.md §3 step 8).
+ *
+ * The tool calls and their results are all persisted and all readable through
+ * `getChatMessages`; what comes back here is the answer. That split is the
+ * backend's deliberate choice, and it is why the widget never has to know
+ * which blocks are machinery on the write path.
+ */
+export interface ChatReply {
+  reply: string
+}
+
+/**
+ * CHAT-1, CHAT-3, CHAT-11. `200`, not `201` — rows are certainly created, but
+ * nothing here is an addressable resource (§8 gives the conversation no id).
+ *
+ * Synchronous and slow by design: the request is held open for the whole
+ * call → execute → follow-up loop, so a caller must show a pending state
+ * (CHAT-16) rather than assume a quick round trip. There is no `signal`
+ * parameter for the same reason the comment and request creators have none —
+ * the work continues server-side whatever the client does, so an abort would
+ * only hide an answer that was already paid for.
+ */
+export function sendChatMessage(input: SendChatMessageInput): Promise<ChatReply> {
+  return request<ChatReply>('/chat/messages', { method: 'POST', body: input })
+}

@@ -88,6 +88,12 @@
   --sidebar-width: 240px;
   --auth-card-width: 400px;
 
+  /* Chat widget panel (T-CHAT-2). Sized only at and above --bp-mobile: below
+     it the panel fills the viewport inside a gutter, so neither value applies
+     and there is nothing to declare for the mobile state. */
+  --chat-panel-width: 380px;
+  --chat-panel-height: 520px;
+
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;

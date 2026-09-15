@@ -51,6 +51,8 @@
 
   --spacing-sidebar: var(--sidebar-width);
   --spacing-auth-card: var(--auth-card-width);
+  --spacing-chat-panel-width: var(--chat-panel-width);
+  --spacing-chat-panel-height: var(--chat-panel-height);
 
   /*
    * Tailwind's `md` variant IS the design-tokens.md "Breakpoints" line
