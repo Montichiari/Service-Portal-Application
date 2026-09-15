@@ -30,12 +30,32 @@ baked in.
 - `/health` returns 200 when run this way.
 - Image contains no secrets (inspect layers to confirm).
 
+## T-DO-DEBT-1 — Pin backend dependencies
+
+**Goal**: Close the reproducibility gap T-DO-1 surfaced — an unpinned `requirements.txt` let the
+built image resolve different (newer) versions than the dev venv.
+**Covers**: DO-23
+**Scope**: Pin `requirements.txt` to the exact versions already resolved and tested inside
+T-DO-1's image (freeze from that container, not the local dev venv) — the pinned set should be
+the one already proven against all 376 tests and the full click-through, not a fresh re-resolve.
+Update the local dev venv to match the same pins so dev and image stay in lockstep.
+**Acceptance**:
+
+- `requirements.txt` lists exact (`==`) versions for every installed package, direct and
+  transitive.
+- A fresh `pip install -r requirements.txt` into a clean venv produces the identical version set
+  on a second, independent run.
+- Full backend test suite still green against the pinned versions.
+- Rebuilding T-DO-1's Docker image with the pinned `requirements.txt` still passes all four of
+  T-DO-1's acceptance criteria.
+
 ## T-DO-2 — Frontend Dockerfile (build stage only)
 
 **Goal**: A reproducible build of the frontend static assets.
-**Covers**: DO-2
+**Covers**: DO-2, DO-23
 **Scope**: Multi-stage Docker build producing `dist/`; no server runs inside the image — it's a
-build tool, not a runtime.
+build tool, not a runtime. Use `npm ci`, not `npm install`, so the build resolves exactly what
+`package-lock.json` pins rather than a range — same reproducibility reasoning as `DO-23`.
 **Acceptance**: `docker build` output matches a local `npm run build` (functionally equivalent).
 
 ## T-DO-3 — Local prod-like stack validation

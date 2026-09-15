@@ -14,6 +14,9 @@ EARS-style, prefixed `DO-N`.
   shall be baked into the image.
 - **DO-4**: The backend container shall write all logs to `stdout`/`stderr`; the application
   shall not write to a local log file.
+- **DO-23**: Dependency manifests (`requirements.txt` for the backend, `package-lock.json` for
+  the frontend) shall pin exact resolved versions, including transitive dependencies, so that
+  two builds from the same commit produce identical dependency sets regardless of when they run.
 
 ## Infrastructure
 
