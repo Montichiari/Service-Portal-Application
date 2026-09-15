@@ -15,8 +15,23 @@ EARS-style, prefixed `DO-N`.
 - **DO-4**: The backend container shall write all logs to `stdout`/`stderr`; the application
   shall not write to a local log file.
 - **DO-23**: Dependency manifests (`requirements.txt` for the backend, `package-lock.json` for
-  the frontend) shall pin exact resolved versions, including transitive dependencies, so that
-  two builds from the same commit produce identical dependency sets regardless of when they run.
+  the frontend) shall pin exact resolved versions, including transitive dependencies, so that two
+  builds from the same commit produce identical dependency sets regardless of when or on which
+  platform they run. Platform-conditional dependencies shall use environment markers copied
+  verbatim from the upstream package's own metadata, never hand-written, so pinning does not
+  break cross-platform installability.
+- **DO-25**: The frontend Docker build shall accept the backend API base URL as a build
+  argument, not a value read only from a committed `.env` file — Vite bakes environment values
+  into the bundle at build time, unlike the backend's runtime env-var config (`DO-3`), so this is
+  the only point at which the deployed frontend can be pointed at the real backend URL.
+- **DO-26**: The frontend's CSS build shall declare its source files explicitly, so that the
+  emitted stylesheet is a function of the application source alone. Tailwind v4 has no `content`
+  array and detects sources by walking the project, skipping only what `.gitignore` skips, which
+  makes every tracked file — prose included — an input to the bundle. `T-DO-2` measured this:
+  adding `frontend/Dockerfile` to the directory added a `.container` utility and five breakpoint
+  media queries to the stylesheet, and `frontend/CLAUDE.md`'s sentences are where `.contents` and
+  `.invert` come from. A build whose output depends on the documentation beside it is not
+  reproducible in the sense `DO-2` asks for.
 
 ## Infrastructure
 
@@ -49,6 +64,10 @@ EARS-style, prefixed `DO-N`.
   automated step — unlike `JWT_SECRET_KEY` provisioning and demo seeding, migrations run on
   nearly every backend change, and forgetting one before deploying dependent code is a common,
   easy-to-hit outage.
+- **DO-24**: The CI runner shall install Python dependencies using an explicit index
+  (`https://pypi.org/simple`) and no extra index configuration inherited from the runner
+  environment — an unreachable or unintended extra index is a dependency-confusion surface even
+  when every version is pinned.
 
 ## Environments
 

@@ -1,0 +1,59 @@
+# Build context exclusions for frontend/Dockerfile (T-DO-2).
+#
+# The rule here is narrower than it looks, and deliberately so: **the context
+# is the git-tracked working tree**, and the only things excluded are paths
+# git already ignores (plus .git itself). That is not tidiness — it is what
+# makes the container's `dist/` byte-identical to a local `npm run build`.
+#
+# Tailwind v4 has no `content` array. It detects sources automatically by
+# walking the project and skipping what .gitignore skips, so *every tracked
+# file in frontend/ is a build input*, including prose. Measured, not
+# theorised: excluding README.md, CLAUDE.md, components.json and .oxlintrc.json
+# from an earlier draft of this file dropped `.contents`, `.invert` and
+# `.container` (with its five breakpoint media queries and the --breakpoint-md
+# theme variable) out of the emitted stylesheet, because frontend/CLAUDE.md's
+# sentences happen to contain those words. Adding this Dockerfile to the
+# directory changed the local bundle by itself, for the same reason — the word
+# "container" in a comment is a class name as far as the scanner is concerned.
+#
+# So anything excluded below must be something Tailwind would have skipped on
+# the developer's machine anyway, or the two builds diverge. Dockerfile and
+# .dockerignore are consequently *not* excluded, unusual as that looks: they
+# are tracked, so they are scanned locally, so they have to be scanned here.
+#
+# That the stylesheet depends on documentation at all is a real defect in the
+# frontend build config rather than a fact to design around — see T-DO-2's
+# entry in tasks.md for the follow-up. This file reproduces the behaviour
+# faithfully; it does not endorse it.
+
+# Platform-specific and large: the win32 rollup/esbuild binaries are useless
+# in a linux container and `npm ci` replaces the tree wholesale regardless.
+# Excluding it is also what keeps `npm ci` honest — the install has to come
+# from package-lock.json because there is nothing else to come from.
+# (Tailwind never scans node_modules, so this costs no equivalence.)
+node_modules
+
+# The host's own build output — gitignored, so unscanned locally. It would be
+# copied in only to be overwritten, and a stale file surviving into a
+# comparison against the real output is the exact thing this task is checking.
+dist
+dist-ssr
+
+# Playwright run output. Gitignored, so unscanned locally.
+test-results
+playwright-report
+blob-report
+playwright/.cache
+
+# Vite env files. Gitignored (.env) or never read by the build (.env.example —
+# Vite loads .env, .env.local and .env.[mode] only), so excluding them changes
+# no output. They are excluded on purpose rather than by accident: DO-25 makes
+# the API base URL a build argument, and the Dockerfile's ARG default is the
+# single source for it. A .env in the context would restore a second source
+# for one setting and let an uncommitted local file change what an image
+# contains.
+.env
+.env.*
+
+# History, not source. Tailwind skips it locally too.
+.git
