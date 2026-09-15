@@ -1,6 +1,6 @@
 # Chatbot — Tasks
 
-> Ordered Claude Code prompts for Phase 6. One task per session, `/clear` between tasks, manual
+> Ordered Claude Code prompts for Phase 5. One task per session, `/clear` between tasks, manual
 > review + commit before starting the next — per `ways-of-working`. Every acceptance criterion
 > cites a `requirements.md` ID from this folder; if you need to know _why_ a criterion exists,
 > that ID is where the reasoning lives, not here.
@@ -155,8 +155,14 @@ confirm it rather than assume it.
 - [x] Any match found is corrected and re-tested; the full suite stays green
 - [x] No match found is treated as a pass on its own terms, not as something to explain away
 
-**Complete.** See `task-log.md#t-chat-0c`. Not a clean grep after all — three prose comments
-justified the `is_error: true` design (`CHAT-8`) by citing "a Haiku-class model," all pointing at
+**Complete, pending its retrospective.** I wrote "See `task-log.md#t-chat-0c`" here on the
+assumption a task-log entry would follow the same pattern as `T-CHAT-0`/`T-CHAT-0b` — it didn't;
+`T-CHAT-1`'s report found no entry for this task despite this line pointing at one. That's on me,
+not a build gap: don't trust this pointer until the entry actually exists. Worth writing once
+you're back to a quiet point — not blocking, since the work itself is done and verified, but a
+dangling reference in a file whose whole purpose is trustworthy cross-session continuity is worth
+closing rather than leaving. Not a clean grep, as it turned out — three prose comments justified
+the `is_error: true` design (`CHAT-8`) by citing "a Haiku-class model," all pointing at
 `design.md §2`. Correctly rewritten as model-neutral rather than substituted to
 "Sonnet-5-class" — §2's revision explicitly states the validation reasoning was never contingent
 on which model calls the tools, so naming a different model would have preserved the exact
@@ -171,7 +177,8 @@ grep and someone else's file to edit mid-flight — now fixed directly in the sp
 **This is the point where the real `ANTHROPIC_API_KEY` and `ANTHROPIC_BASE_URL` become
 necessary** — nothing before this task needs them.
 
-**Covers**: `CHAT-4`, `CHAT-6`, `CHAT-11`, and the live happy-path of `CHAT-3`.
+**Covers**: `CHAT-4`, `CHAT-6`, `CHAT-11`, `CHAT-21` (added mid-task — see retrospective), and the
+live happy-path of `CHAT-3`.
 
 **Scope**:
 
@@ -191,46 +198,50 @@ necessary** — nothing before this task needs them.
 
 **Acceptance criteria**:
 
+- [x] `CHAT-3`: the user's message is persisted before the API call is made — verified live,
+      against the real transport, by forcing the call to fail
 - [x] `CHAT-6`/`CHAT-11`: a live message that should trigger a tool call (e.g. "create a ticket
       for my broken laptop") results in a real row in `service_requests`, owned by the test user,
-      and a natural-language confirmation reply — **verified live**
-      (`evals/test_live_exchange.py::test_asking_for_a_ticket_files_one`): `claude-sonnet-5`
-      chose `create_service_request`, the row was filed for the authenticated caller with no
-      assignee and status `open`, and the reply named its id and pointed at the dashboard
-- [x] `CHAT-3`: the user's message is persisted before the API call is made — verify by forcing
-      the API call to fail and asserting the user message still exists — **verified against the
-      live endpoint**, with the real client and a real transport failure, in addition to the
-      deterministic test `T-CHAT-0` already had
+      and a natural-language confirmation reply
 - [x] A message that doesn't need a tool (an FAQ-style question) returns a plain-text reply on
-      the first round trip, with no tool call made — **verified live**: "How do I reset my
-      password?" answered from FAQ 1 in one round trip, no tool call, nothing filed
+      the first round trip, with no tool call made
 - [x] Eval set (`design.md §11`): a small fixed list of example messages with an expected tool
-      choice, not an expected exact reply — run manually or on a separate, not-every-push job,
-      per the design's reasoning on cost and flakiness — **`evals/test_tool_choice.py`, seven
-      cases, kept off every-push by living outside `testpaths` rather than behind a marker.
-      Runs clean apart from the open finding below**
+      choice, not an expected exact reply — 10 cases, 3 consecutive clean runs, transcripts
+      inspected for actual behavior, not just pass/fail
 
-**The eval set's first finding: an explicit "file a ticket" does not reliably file one.** Two
-consecutive runs failed in two different places, and both are the same behaviour. Run 1:
-`explicit-request` ("Please open a ticket: my monitor flickers every few minutes") made no tool
-call — the assistant said it had no specific guidance for monitor flicker, offered to log a
-ticket, and asked about scope and priority first. Run 2: that case passed and the live exchange
-failed instead — "My laptop won't turn on… Please file a ticket for this" was answered with
-"Before I file this, have you tried holding the power button down for about 10 seconds?"
+**Complete.** See `task-log.md#t-chat-1`. This task went through a real debugging detour worth
+recording in full, since the wrong turn and the correction are both instructive.
 
-This is the system prompt working as written. `prompt.py` says to try one round of the obvious
-checks before filing, to judge priority from what the user describes and ask when it is genuinely
-unclear; CHAT-20 says to decline rather than improvise guidance. Against an explicit request to
-file, those instructions compete with the request, and the model resolves the conflict
-differently from run to run. It is also arguably the wrong product behaviour: a user who says
-"please open a ticket" has asked for one, and filing it with a sensible default beats an
-interrogation they can correct afterwards.
+_The Foundry auth theory was wrong._ Against a dead credential (every key, including a
+deliberately wrong one, 401'd identically), a separate `AnthropicFoundry`-vs-`Anthropic`
+client-selection branch was added on a plausible-but-untestable theory about the auth handshake.
+A working key falsified it directly: the plain `Anthropic` client, given only `base_url`, works
+with ordinary `x-api-key`. The branch, its two tests, and the corresponding design.md/decision-8
+wording have all been reverted — design.md's original "wire-compatible" claim was right all
+along. Lesson kept in `backend/CLAUDE.md`: a 401 is evidence about a credential, not a transport.
 
-Left open deliberately, failing, rather than silenced. Resolving it means editing either the
-prompt (T-CHAT-0b's file) or the expectation, and that is a product decision. It also makes
-`test_asking_for_a_ticket_files_one` non-deterministic as written — a single-turn assertion
-against a model that may reasonably ask first — so whichever way the prompt goes, that test
-should drive a second turn rather than assume the first one files.
+_A real behavioral bug, found only by repeated live evals._ An explicit "please file a ticket"
+didn't reliably file — the system prompt's "troubleshoot first" instruction and the tool
+description's "ask if priority is unclear" instruction competed with an explicit request, with no
+rule to break the tie, so the model resolved it differently run to run. Resolved via `prompt.py`
+(explicit request always files; priority defaults to `medium`, never blocks) and a matching fix
+to `tools.py`'s tool description, which had been contradicting the new rule. Verified with 3
+consecutive clean eval runs and the actual reply text inspected, not just the pass/fail count —
+explicitly caveated as evidence of stability, not proof of it. New requirement: `CHAT-21`.
+
+_An unplanned validation of an old decision._ Sonnet 5 returns signed `thinking` blocks on some
+turns. They're persisted and replayed verbatim because `design.md §6` stores the raw content-block
+array rather than parsing into a narrower typed model — a design decision made long before
+`thinking` blocks were a consideration, which is exactly why storing the primitive instead of a
+projection of it paid off here.
+
+_Process note, not yet resolved:_ `prompt.py` and `tools.py` belong to `T-CHAT-0b`/`T-CHAT-0`, not
+this task, but both needed edits to fix the behavior above — recorded under `T-CHAT-1` in the
+task log rather than folded in silently. Nothing has been committed since before `T-CHAT-0c`, so
+`T-CHAT-0c`, the (added-then-reverted, net-zero) Foundry detour, and this task's real changes are
+all sitting uncommitted together. Worth splitting into at least two commits — `T-CHAT-0c`'s
+realignment, then this task's actual delivered state — before `T-CHAT-2` starts, for the same
+reason this discipline has mattered every other time: an isolated, revertible unit per task.
 
 ### T-CHAT-2 — Frontend chat widget
 
@@ -258,4 +269,4 @@ should drive a second turn rather than assume the first one files.
 - [ ] `CHAT-17`: a forced network failure leaves the typed message in the input, not lost
 - [ ] Checked at ~1280px and ~375px, matching the project's existing responsive-check convention
 
-**Chat phase checkpoint** — Phase 6 complete.
+**Chat phase checkpoint** — Phase 5 complete.

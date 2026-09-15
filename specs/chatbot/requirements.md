@@ -12,9 +12,11 @@ EARS-style, ID-traceable to `design.md`.
   validate or leak.
 - **CHAT-3**: When a user posts a message to an existing conversation, the system shall persist the
   user's message to `chat_messages` before calling the Messages API.
-- **CHAT-4**: The system shall include the most recent 20 messages of the conversation's history
-  in every call to the Messages API (capped, not the full thread), formatted as the stored
-  content-block array — design.md §10 decision 5.
+- **CHAT-4**: The system shall include the conversation's history in every call to the Messages
+  API, capped at 20 messages, choosing the earliest legal start point inside that cap rather than
+  a naive most-recent-20 slice — a slice can land between a `tool_use` block and its paired
+  `tool_result`, which the Messages API rejects outright. Formatted as the stored content-block
+  array — design.md §10 decision 5.
 - **CHAT-14**: `POST /chat/messages` shall enforce a maximum message length of 4000 characters
   (design.md §10 decision 6) to bound cost and misuse.
 
@@ -38,6 +40,15 @@ EARS-style, ID-traceable to `design.md`.
 - **CHAT-19**: The loop in CHAT-11 shall stop after `MAX_TOOL_ROUNDS = 5` rounds of tool
   execution (six Messages API calls maximum per user message); on exhaustion, the system shall
   return a fixed reply and log the conversation id, rather than raising or looping indefinitely.
+- **CHAT-21**: When a user's message contains an explicit request to file or open a ticket, the
+  assistant shall call `create_service_request` on that turn rather than asking a clarifying
+  question first. Priority is never a valid reason to ask — it defaults to `medium` when not
+  specified, since it is always judgeable from the description and always changeable afterward. A
+  problem report _without_ an explicit filing request may still prompt one round of troubleshooting
+  before offering to file (unchanged FAQ-style behavior). Found via eval instability (T-CHAT-1):
+  two consecutive runs failed in different places because the system prompt's "try troubleshooting
+  first" instruction and the tool argument description's "ask if priority is unclear" instruction
+  competed with an explicit user request, with no rule to break the tie.
 
 ## Persistence
 
@@ -74,7 +85,12 @@ EARS-style, ID-traceable to `design.md`.
 
 ## Coverage note
 
-All of design.md §10's decisions are now settled (1 through 7). CHAT-19 and CHAT-20 are new,
-added after `T-CHAT-0`'s report surfaced the previously-undocumented tool-loop ceiling and after
-the FAQ-size decision was resolved in favor of a fixed, hand-maintained set rather than an
-auto-switching mechanism — the same way `T-SR-0`'s findings added `SR-14`/`SR-15` mid-implementation.
+All of design.md §10's decisions are settled (1 through 8; decisions 1 and 8 both went through a
+revision that was itself later corrected — see their status text for what changed and why).
+CHAT-19, CHAT-20, and CHAT-21 were all added after implementation surfaced something the original
+requirements didn't cover: an undocumented tool-loop ceiling, the FAQ grounding boundary, and —
+found only through repeated live eval runs, not deterministic testing — a real tie-breaking gap
+between "troubleshoot first" and an explicit filing request. Same pattern each time, the same way
+`T-SR-0`'s findings added `SR-14`/`SR-15` mid-implementation: build first, the spec catches up
+with what was actually learned, not the other way around. `T-CHAT-1` is complete as of this
+revision — all of Phase 5's chat feature is now built and live-verified end to end.

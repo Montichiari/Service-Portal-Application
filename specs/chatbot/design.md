@@ -12,12 +12,14 @@ guidance, all backed by the existing service-layer functions rather than new log
 ## 2. Model & provider
 
 - Anthropic Messages API, via a Microsoft-Foundry-hosted deployment (§10 decision 8) —
-  wire-compatible with the direct `https://api.anthropic.com` endpoint, same request/response
-  shape, so nothing else on this page changes because of where the deployment lives.
-  **Confirmed against the live resource in `T-CHAT-1`**, rather than left as an assumption: the
-  first-party client with nothing but a `base_url`, authenticating with its ordinary `x-api-key`
-  header, completes a full tool-calling exchange against the Foundry deployment. No
-  provider-specific client class and no extra header are needed.
+  wire-compatible with the direct `https://api.anthropic.com` endpoint, including the auth
+  handshake: the plain `Anthropic` client, given nothing but `base_url`, authenticates with
+  ordinary `x-api-key` and completes a full exchange. An earlier version of this line claimed
+  Foundry needed a separate `AnthropicFoundry` client class with its own header convention — that
+  theory was formed while debugging a dead credential (every key, including a deliberately wrong
+  one, produced an identical 401) and is now falsified with a working one. Lesson worth keeping
+  past this specific mistake: a 401 is evidence about a credential, not about the transport —
+  don't infer an architecture change from an auth error you can't yet test against a working key.
 - Model: `claude-sonnet-5` (§10 decision 1, revised) — not a cost/latency choice this time, but
   the only model actually deployed on the provided resource. The original Haiku-4.5 reasoning
   (cost-appropriate for a small tool set, argument validation matters more than model quality)
@@ -27,11 +29,14 @@ guidance, all backed by the existing service-layer functions rather than new log
   separate "tool" role**. A tool call is a `tool_use` content block inside an **assistant**
   message; the executed result goes back as a `tool_result` content block inside the next
   **user** message. The system prompt is a top-level `system` field, not a message in the array.
-  This shapes the schema in §6.
+  This shapes the schema in §6. Sonnet 5 also returns signed `thinking` blocks in the content
+  array on some turns — one more reason §6 stores and replays the raw block array verbatim
+  rather than parsing into a narrower typed model, which would have silently dropped them and
+  broken the follow-up call on every thinking turn.
 - Endpoint: the client's `base_url` is a config value (`ANTHROPIC_BASE_URL`), never hardcoded —
-  set to the provided Foundry resource's endpoint. The code stays provider-agnostic regardless
-  (unset falls back to the SDK's own `api.anthropic.com` default), so nothing breaks if a direct
-  Console key ever replaces this deployment later.
+  set to the provided Foundry resource's endpoint. Unset falls back to the SDK's own
+  `api.anthropic.com` default, so nothing breaks if a direct Console key ever replaces this
+  deployment later.
 
 ## 3. Conversation flow
 
@@ -40,13 +45,7 @@ guidance, all backed by the existing service-layer functions rather than new log
 2. Backend gets-or-creates that user's `chat_conversations` row, loads its prior messages from
    `chat_messages`, and appends the new user message.
 3. Backend calls the Messages API with `system` (behavior instructions + FAQ content, §7),
-   `tools` (§4), and the message history — capped at the last 20 messages (decision 5).
-   **The cap is not a slice** (`T-CHAT-1`): a request's history must begin with a user message
-   that is not itself a `tool_result`, because the API rejects a `tool_result` whose `tool_use`
-   it cannot see. `messages[-20:]` lands mid-pair roughly half the time in a tool-using
-   conversation, and only once a thread is long enough to be trimmed — a failure that cannot
-   appear in a short test and takes out the whole request when it does appear. The window is
-   therefore the earliest legal starting point within the cap.
+   `tools` (§4), and the message history.
 4. Response `stop_reason` is either `end_turn` (plain text) or `tool_use` (one or more tool
    calls).
 5. For each tool call: validate arguments against the tool's schema, execute the matching
@@ -189,16 +188,16 @@ endpoint are dropped for the same reason — revisit only if multi-thread suppor
 
 ## 10. Decisions
 
-| #   | Decision                                                                                                                                                                                                                                                               | Status            |
-| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
-| 1   | Model: `claude-sonnet-5` — revised from the original Haiku-4.5 pick; not a cost/latency choice, but the only model deployed on the provided Foundry resource (§2)                                                                                                      | Decided (revised) |
-| 2   | Conversation model: one continuous conversation per user, not multiple threads (§6, §8)                                                                                                                                                                                | Decided           |
-| 3   | Admin scope: `get_request_status` follows `GET /service-requests/{id}`'s existing rule — any ticket for admins, own only for regular users (§4)                                                                                                                        | Decided           |
-| 4   | FAQ size: fixed at 10 IT-support entries, always inlined — `search_faq` removed entirely, not just left unused (§7)                                                                                                                                                    | Decided           |
-| 5   | History window: capped at the last 20 messages per request, not the full thread — a cost control, since per-token pricing scales with every call regardless of thread length or which model is deployed (§3)                                                           | Decided           |
-| 6   | Chat message length limit: 4000 characters (CHAT-14) — generous for a support request, cheap to raise later if it's wrong                                                                                                                                              | Decided           |
-| 7   | Tool-loop ceiling: `MAX_TOOL_ROUNDS = 5` (CHAT-19) — five rounds after the first call, six Messages API calls maximum per user message; on exhaustion, a fixed reply is returned and the conversation id is logged, rather than raising or looping indefinitely        | Decided           |
-| 8   | Deployment: Microsoft Foundry (assessment-provided resource), not a direct Anthropic Console key — `ANTHROPIC_BASE_URL` set accordingly (§2). Client code stays provider-agnostic; this decision only fixes which provider this specific deployment actually points at. Verified end to end in `T-CHAT-1`: one client class, `base_url` from config, a live tool-calling exchange against the resource (§2) | Decided           |
+| #   | Decision                                                                                                                                                                                                                                                                                                                                                                                                     | Status             |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------ |
+| 1   | Model: `claude-sonnet-5` — revised from the original Haiku-4.5 pick; not a cost/latency choice, but the only model deployed on the provided Foundry resource (§2)                                                                                                                                                                                                                                            | Decided (revised)  |
+| 2   | Conversation model: one continuous conversation per user, not multiple threads (§6, §8)                                                                                                                                                                                                                                                                                                                      | Decided            |
+| 3   | Admin scope: `get_request_status` follows `GET /service-requests/{id}`'s existing rule — any ticket for admins, own only for regular users (§4)                                                                                                                                                                                                                                                              | Decided            |
+| 4   | FAQ size: fixed at 10 IT-support entries, always inlined — `search_faq` removed entirely, not just left unused (§7)                                                                                                                                                                                                                                                                                          | Decided            |
+| 5   | History window: capped at the last 20 messages per request, not the full thread — a cost control, since per-token pricing scales with every call regardless of thread length or which model is deployed. A naive most-recent-20 slice can orphan a `tool_result` from its `tool_use`, which the API rejects outright — the cut point must find the earliest legal start inside the cap instead (§3)          | Decided            |
+| 6   | Chat message length limit: 4000 characters (CHAT-14) — generous for a support request, cheap to raise later if it's wrong                                                                                                                                                                                                                                                                                    | Decided            |
+| 7   | Tool-loop ceiling: `MAX_TOOL_ROUNDS = 5` (CHAT-19) — five rounds after the first call, six Messages API calls maximum per user message; on exhaustion, a fixed reply is returned and the conversation id is logged, rather than raising or looping indefinitely                                                                                                                                              | Decided            |
+| 8   | Deployment: Microsoft Foundry (assessment-provided resource) — the plain `Anthropic` client works with nothing but `base_url` set, ordinary `x-api-key` auth, no separate client class. A prior revision of this decision added an `AnthropicFoundry`-vs-`Anthropic` selection branch based on an untestable theory formed against a dead credential; reverted once a working key proved it unnecessary (§2) | Decided (reverted) |
 
 ## 11. Testing approach
 
@@ -215,11 +214,3 @@ test:
   choice_, not an expected exact reply (e.g. "my laptop won't turn on" → expect a
   `create_service_request` call). Run occasionally, not on every CI push — it costs money and can
   be flaky — to catch routing regressions when the system prompt or tool schemas change.
-
-`T-CHAT-1` gave "run occasionally" a mechanism rather than a convention. The evals live in
-`backend/evals/`, which `pytest.ini`'s `testpaths = tests` excludes from collection entirely — a
-marker would have left them one `-m` flag away from running in CI, where the cost of the mistake
-is a bill rather than a red build. The guarantee has a second half: an autouse fixture in
-`tests/conftest.py` unsets `ANTHROPIC_API_KEY` for every test under `tests/`, so a test that
-reaches `POST /chat/messages` without stubbing the client cannot place a live call even by
-accident. Nothing in the default suite can spend money; nothing in `evals/` pretends not to.
