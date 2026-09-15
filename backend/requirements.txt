@@ -1,30 +1,103 @@
-fastapi
-uvicorn[standard]
-sqlalchemy
-alembic
-psycopg2-binary
-pydantic
+# Backend dependencies, pinned to exact versions (T-DO-DEBT-1; DO-23).
+#
+# Every package is pinned with `==`, transitive ones included, so two installs
+# from this commit resolve the same tree whenever they run. The unpinned file
+# this replaced did not: T-DO-1's image, built weeks after the dev venv, picked
+# up newer releases of eight packages (alembic, anthropic, anyio, greenlet,
+# httpcore2, httpx2, psycopg2-binary, PyJWT, SQLAlchemy, uvicorn) without a
+# single line of this file changing.
+#
+# The versions below were frozen out of *that image*, not out of the dev venv.
+# They are the set the 376-test suite and T-DO-1's full click-through ran
+# against; the venv's older set is the one nothing was verified on. Freezing the
+# venv would have pinned the project backwards onto untested versions, which is
+# the opposite of what pinning is for. The dev venv was upgraded to match this
+# file instead, so the two are now in lockstep in the one direction that was
+# actually proven to work.
+#
+# Two entries carry environment markers, copied from the upstream metadata that
+# produced them, because the two environments legitimately differ: uvloop has no
+# Windows build and colorama is Windows-only. Without the markers this file is
+# uninstallable on one platform or the other, and a single flat list frozen from
+# Linux would fail on every developer's machine.
+#
+# `pip` itself is deliberately absent (it differs — 26.2.1 in the image, 26.1.1
+# in the venv). It is the installer, not a dependency; with every version below
+# pinned exactly, the resolver's own version does not change what it resolves.
+#
+# To change a version, change it here and rebuild both the image and the venv —
+# never `pip install -U` into one of them and leave this file behind.
+
+# --- direct dependencies -----------------------------------------------------
+
+fastapi==0.141.1
+uvicorn[standard]==0.53.0
+sqlalchemy==2.0.53
+alembic==1.20.0
+psycopg2-binary==2.9.13
+pydantic==2.13.5
 # Backs pydantic's EmailStr, which is an optional extra rather than part of
 # pydantic itself. Used by the register/login schemas (T-AUTH-3) so "valid
 # email" is one maintained implementation instead of a hand-rolled regex.
-email-validator
-pydantic-settings
-python-dotenv
+email-validator==2.3.0
+pydantic-settings==2.15.0
+python-dotenv==1.2.3
 # Password hashing. Used directly rather than via passlib[bcrypt]: passlib
 # 1.7.4 (2020, unmaintained) fails on every hash against bcrypt >= 4.1 — see
 # the module docstring in app/core/security.py.
-bcrypt
+bcrypt==5.0.0
 # Access-token encode/decode.
-pyjwt
+pyjwt==2.14.0
 # The chat assistant's Messages API client (T-CHAT-1). Imported from exactly
 # one module, app/chat/anthropic_client.py, and never at import time from
 # app/chat/client.py — so the rest of the chat feature, and its tests, run
-# without it. `AnthropicFoundry` (needed by this deployment, see that module)
-# ships in the same package; there is no separate Foundry distribution.
-anthropic
-pytest
+# without it. The Foundry deployment is served by the ordinary `Anthropic`
+# client with a `base_url`, not by a separate client class or distribution.
+anthropic==1.6.0
+pytest==9.1.1
 # Required by fastapi.testclient / starlette.testclient. Starlette 1.x asks for
 # httpx2 specifically (httpx 2.x, distributed under a new package name), not
 # the older `httpx` distribution — installing that one leaves TestClient
 # raising "requires the httpx2 package".
-httpx2
+httpx2==2.13.0
+
+# --- transitive dependencies -------------------------------------------------
+#
+# Pinned for the same reason as the direct ones: an unpinned transitive is just
+# as capable of changing between two builds. Nothing here is imported by our
+# code; if a package above stops requiring one of these, it goes.
+
+annotated-doc==0.0.5
+annotated-types==0.8.0
+anyio==4.15.1
+click==8.5.0
+# pytest's Windows-only ANSI shim. Present in the dev venv, absent from the
+# Linux image, and correct in both — hence the marker rather than a flat pin.
+colorama==0.4.6; sys_platform == "win32"
+dnspython==2.8.0
+docstring_parser==0.18.0
+greenlet==3.5.6
+h11==0.16.0
+httpcore2==2.13.0
+httptools==0.8.0
+idna==3.19
+iniconfig==2.3.0
+jiter==0.17.0
+Mako==1.4.1
+MarkupSafe==3.0.3
+packaging==26.3
+pluggy==1.6.0
+pydantic_core==2.46.5
+Pygments==2.21.0
+PyYAML==6.0.3
+sniffio==1.3.1
+starlette==1.6.0
+truststore==0.10.4
+typing-inspection==0.4.4
+typing_extensions==4.16.0
+# uvicorn[standard]'s event loop, which has no Windows or PyPy build. The marker
+# is uvicorn's own, verbatim, so this line installs in exactly the environments
+# the extra would have installed it in.
+uvloop==0.22.1; sys_platform != "win32" and (sys_platform != "cygwin" and platform_python_implementation != "PyPy")
+watchfiles==1.2.0
+websockets==17.1
