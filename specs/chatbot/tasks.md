@@ -1,6 +1,6 @@
 # Chatbot — Tasks
 
-> Ordered Claude Code prompts for Phase 5. One task per session, `/clear` between tasks, manual
+> Ordered Claude Code prompts for Phase 6. One task per session, `/clear` between tasks, manual
 > review + commit before starting the next — per `ways-of-working`. Every acceptance criterion
 > cites a `requirements.md` ID from this folder; if you need to know _why_ a criterion exists,
 > that ID is where the reasoning lives, not here.
@@ -113,31 +113,81 @@ resolved in favor of a fixed, hand-maintained FAQ over an auto-scaling mechanism
       presence exists
 - [x] `create_service_request` and `get_request_status`'s existing `T-CHAT-0` tests still pass
       unchanged — this task touches FAQ and prompt-building only
-- [ ] Full suite green afterward, with fewer total tests than `T-CHAT-0` left (the deleted
-      `search_faq` tests should be gone, not passing vacuously) — **green, count unchanged at
-      344.** The seven FAQ-search and threshold tests are gone; four CHAT-20 prompt tests and
-      three FAQ-content tests replaced them, which this task's own scope required. Left unticked
-      rather than reworded, since the criterion as written says "fewer"
+- [x] Full suite green afterward; the deleted `search_faq` tests are actually gone rather than
+      passing vacuously (7 removed, confirmed), and any new tests exist to cover this task's own
+      added scope (`CHAT-20`'s boundary, FAQ-content-matches-design.md verification) — **not** a
+      raw test-count drop, which is what this criterion originally said and shouldn't have; the
+      scope always implied new tests alongside the removed ones
 
-**Complete.** See `task-log.md#t-chat-0b`.
+**Complete.** See `task-log.md#t-chat-0b`. Two things worth carrying forward: the FAQ-content test
+parses `design.md §7` directly and asserts equality, rather than a hand-typed copy in the test
+file — avoids two independent transcriptions of one source drifting apart unnoticed. And the
+existing loop-ceiling test was silently relying on a `search_faq` payload to drive its six
+rounds; removing the tool would have left it green while testing the unknown-tool path instead
+of the loop — another instance of the recurring test-lies pattern, caught before merge rather
+than after. Worth its own line in the running tally in both `CLAUDE.md` files, alongside the
+`T-AUTH`/`T-SR-0` instances already logged there.
+
+### T-CHAT-0c — Realign to the Foundry/Sonnet-5 decision before T-CHAT-1
+
+**Goal**: Confirm nothing built in `T-CHAT-0`/`T-CHAT-0b` assumed the original Haiku-4.5,
+direct-Anthropic-endpoint decision, and correct anything that did — before `T-CHAT-1` wires up
+the live call against the actual provided Foundry resource. Neither prior task's scope touched
+model or endpoint config, so this is expected to be a clean check, not a real rewrite — but
+confirm it rather than assume it.
+
+**Covers**: `design.md §10` decision 1 (revised), decision 8 (new).
+
+**Scope**:
+
+- Grep `app/` and `tests/`, case-insensitive, for `haiku`, `claude-haiku`, and any hardcoded
+  `api.anthropic.com` reference.
+- If nothing turns up: report that plainly, make no code changes, and mark this task complete on
+  that basis. A clean grep is a valid, sufficient result — don't invent work to fill the task.
+- If something does turn up (a fixture default, a docstring example, a comment): update it to
+  `claude-sonnet-5` and provider-neutral phrasing, consistent with `design.md §2`'s revised
+  decision, and re-run the full suite.
+
+**Acceptance criteria**:
+
+- [x] Grep output for `haiku` / `claude-haiku` / hardcoded `api.anthropic.com` across `app/` and
+      `tests/` is included in the report verbatim, whether or not anything matched
+- [x] Any match found is corrected and re-tested; the full suite stays green
+- [x] No match found is treated as a pass on its own terms, not as something to explain away
+
+**Complete.** See `task-log.md#t-chat-0c`. Not a clean grep after all — three prose comments
+justified the `is_error: true` design (`CHAT-8`) by citing "a Haiku-class model," all pointing at
+`design.md §2`. Correctly rewritten as model-neutral rather than substituted to
+"Sonnet-5-class" — §2's revision explicitly states the validation reasoning was never contingent
+on which model calls the tools, so naming a different model would have preserved the exact
+coupling the revision removed. Scope discipline held at the edges too: three stale `__pycache__`
+hits were gitignored build artifacts, deleted rather than edited; a fourth stale Haiku reference
+in `design.md §10` decision 5 was correctly left alone as outside this task's `app/`/`tests/`
+grep and someone else's file to edit mid-flight — now fixed directly in the spec itself.
 
 ### T-CHAT-1 — Live Anthropic integration (orchestration loop)
 
 **Goal**: Wire the actual call to the Messages API — the piece T-CHAT-0 deliberately mocked.
-**This is the point where a real `ANTHROPIC_API_KEY` becomes necessary** — nothing before this
-task needs it.
+**This is the point where the real `ANTHROPIC_API_KEY` and `ANTHROPIC_BASE_URL` become
+necessary** — nothing before this task needs them.
 
 **Covers**: `CHAT-4`, `CHAT-6`, `CHAT-11`, and the live happy-path of `CHAT-3`.
 
 **Scope**:
 
-- `ANTHROPIC_API_KEY` added to `config.py` alongside `JWT_SECRET_KEY`; `.env.example` placeholder
-  added — same secret-handling pattern as `T-AUTH-1`.
+- `ANTHROPIC_API_KEY` and `ANTHROPIC_BASE_URL` added to `config.py` alongside `JWT_SECRET_KEY`;
+  `.env.example` placeholders added for both — same secret-handling pattern as `T-AUTH-1`.
+  `ANTHROPIC_BASE_URL` is set for this deployment (Microsoft Foundry, decision 8) but the client
+  should still treat it as optional in code — pass it only when set, so an unset value falls back
+  to the SDK's own `api.anthropic.com` default and nothing breaks if a direct Console key ever
+  replaces this deployment later. Don't validate the key's shape against the `sk-ant-` prefix at
+  startup — this deployment's key doesn't look like that and is equally valid.
 - The call → execute → follow-up loop from `design.md §3`: call the Messages API with `system`,
   `tools`, and the last 20 messages of history (decision 5); on `stop_reason: tool_use`, execute
   via T-CHAT-0's functions and send a follow-up; repeat until `end_turn`; persist every block.
-- Model read from config as `claude-haiku-4-5` (decision 1) — never hardcoded in the client call,
-  so the upgrade path to `claude-sonnet-5` is a config change, not a code change.
+- Model read from config as `claude-sonnet-5` (decision 1, revised) — never hardcoded in the
+  client call. The deployment name on the provided resource already matches the standard model
+  string, confirmed — no separate deployment-name mapping needed.
 
 **Acceptance criteria**:
 
@@ -178,4 +228,4 @@ task needs it.
 - [ ] `CHAT-17`: a forced network failure leaves the typed message in the input, not lost
 - [ ] Checked at ~1280px and ~375px, matching the project's existing responsive-check convention
 
-**Chat phase checkpoint** — Phase 5 complete.
+**Chat phase checkpoint** — Phase 6 complete.

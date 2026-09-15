@@ -24,7 +24,7 @@ be the one facing a component that can be talked into asking for anything.
 arguments and invisible rows come back as ``tool_result`` blocks with
 ``is_error: true``, which the model can read and recover from — by asking the
 user for the missing field, typically. Raising instead would turn "the model
-guessed a parameter wrong", which is a normal event with a Haiku-class model
+guessed a parameter wrong", which is a normal event with any model
 (design.md §2), into a 500 for the person typing.
 """
 

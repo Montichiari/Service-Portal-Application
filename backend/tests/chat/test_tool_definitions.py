@@ -44,9 +44,9 @@ def test_every_definition_is_shaped_the_way_the_messages_api_expects() -> None:
 def test_every_argument_carries_a_description() -> None:
     """The model reads these; a bare type is a parameter it will guess at.
 
-    design.md §2 notes that a Haiku-class model may infer a missing parameter
-    rather than ask, which makes per-argument wording part of the tool's
-    correctness rather than polish.
+    design.md §2 notes that a model may infer a missing parameter rather than
+    ask — reasoning it keeps regardless of which model is calling — which makes
+    per-argument wording part of the tool's correctness rather than polish.
     """
     for definition in TOOL_DEFINITIONS.values():
         for field, schema in definition["input_schema"]["properties"].items():

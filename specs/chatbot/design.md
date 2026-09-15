@@ -11,17 +11,23 @@ guidance, all backed by the existing service-layer functions rather than new log
 
 ## 2. Model & provider
 
-- Anthropic Messages API (`POST https://api.anthropic.com/v1/messages`).
-- Model: `claude-haiku-4-5` — cost- and latency-appropriate for a small, well-defined tool set.
-  Anthropic's own tool-use guidance is that Haiku-class models suit straightforward tools but may
-  infer missing parameters, which is why argument validation in §5 matters more here than model
-  quality does. Upgrade path to `claude-sonnet-5` if evals (see §11) show it misrouting ambiguous
-  requests.
+- Anthropic Messages API, via a Microsoft-Foundry-hosted deployment (§10 decision 8) —
+  wire-compatible with the direct `https://api.anthropic.com` endpoint, same request/response
+  shape, so nothing else on this page changes because of where the deployment lives.
+- Model: `claude-sonnet-5` (§10 decision 1, revised) — not a cost/latency choice this time, but
+  the only model actually deployed on the provided resource. The original Haiku-4.5 reasoning
+  (cost-appropriate for a small tool set, argument validation matters more than model quality)
+  doesn't apply to this specific deployment; keep §5's validation regardless; it was never
+  contingent on which model was calling the tools.
 - Structural difference from the OpenAI pattern researched earlier: the Messages API has **no
   separate "tool" role**. A tool call is a `tool_use` content block inside an **assistant**
   message; the executed result goes back as a `tool_result` content block inside the next
   **user** message. The system prompt is a top-level `system` field, not a message in the array.
   This shapes the schema in §6.
+- Endpoint: the client's `base_url` is a config value (`ANTHROPIC_BASE_URL`), never hardcoded —
+  set to the provided Foundry resource's endpoint. The code stays provider-agnostic regardless
+  (unset falls back to the SDK's own `api.anthropic.com` default), so nothing breaks if a direct
+  Console key ever replaces this deployment later.
 
 ## 3. Conversation flow
 
@@ -173,15 +179,16 @@ endpoint are dropped for the same reason — revisit only if multi-thread suppor
 
 ## 10. Decisions
 
-| #   | Decision                                                                                                                                                                                                                                                        | Status  |
-| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
-| 1   | Model: `claude-haiku-4-5` to start, upgrade path to Sonnet 5 if evals show misrouting (§2)                                                                                                                                                                      | Decided |
-| 2   | Conversation model: one continuous conversation per user, not multiple threads (§6, §8)                                                                                                                                                                         | Decided |
-| 3   | Admin scope: `get_request_status` follows `GET /service-requests/{id}`'s existing rule — any ticket for admins, own only for regular users (§4)                                                                                                                 | Decided |
-| 4   | FAQ size: fixed at 10 IT-support entries, always inlined — `search_faq` removed entirely, not just left unused (§7)                                                                                                                                             | Decided |
-| 5   | History window: capped at the last 20 messages per request, not the full thread — a cost control, since Haiku's per-token pricing scales with every call regardless of thread length (§3)                                                                       | Decided |
-| 6   | Chat message length limit: 4000 characters (CHAT-14) — generous for a support request, cheap to raise later if it's wrong                                                                                                                                       | Decided |
-| 7   | Tool-loop ceiling: `MAX_TOOL_ROUNDS = 5` (CHAT-19) — five rounds after the first call, six Messages API calls maximum per user message; on exhaustion, a fixed reply is returned and the conversation id is logged, rather than raising or looping indefinitely | Decided |
+| #   | Decision                                                                                                                                                                                                                                                               | Status            |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
+| 1   | Model: `claude-sonnet-5` — revised from the original Haiku-4.5 pick; not a cost/latency choice, but the only model deployed on the provided Foundry resource (§2)                                                                                                      | Decided (revised) |
+| 2   | Conversation model: one continuous conversation per user, not multiple threads (§6, §8)                                                                                                                                                                                | Decided           |
+| 3   | Admin scope: `get_request_status` follows `GET /service-requests/{id}`'s existing rule — any ticket for admins, own only for regular users (§4)                                                                                                                        | Decided           |
+| 4   | FAQ size: fixed at 10 IT-support entries, always inlined — `search_faq` removed entirely, not just left unused (§7)                                                                                                                                                    | Decided           |
+| 5   | History window: capped at the last 20 messages per request, not the full thread — a cost control, since per-token pricing scales with every call regardless of thread length or which model is deployed (§3)                                                           | Decided           |
+| 6   | Chat message length limit: 4000 characters (CHAT-14) — generous for a support request, cheap to raise later if it's wrong                                                                                                                                              | Decided           |
+| 7   | Tool-loop ceiling: `MAX_TOOL_ROUNDS = 5` (CHAT-19) — five rounds after the first call, six Messages API calls maximum per user message; on exhaustion, a fixed reply is returned and the conversation id is logged, rather than raising or looping indefinitely        | Decided           |
+| 8   | Deployment: Microsoft Foundry (assessment-provided resource), not a direct Anthropic Console key — `ANTHROPIC_BASE_URL` set accordingly (§2). Client code stays provider-agnostic; this decision only fixes which provider this specific deployment actually points at | Decided           |
 
 ## 11. Testing approach
 

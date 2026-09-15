@@ -590,10 +590,10 @@ def test_missing_arguments_come_back_as_an_error_result(
 ) -> None:
     """CHAT-8's acceptance criterion: ``is_error``, not a 500.
 
-    A Haiku-class model inferring or dropping a parameter is a normal event
-    (design.md §2), so this is the common path rather than an edge case. The
-    model is told what was missing — it can ask the user and try again — and the
-    person typing sees a conversation continue rather than a crash.
+    Any model inferring or dropping a parameter is a normal event (design.md
+    §2), so this is the common path rather than an edge case. The model is told
+    what was missing — it can ask the user and try again — and the person typing
+    sees a conversation continue rather than a crash.
     """
     user = make_user()
 
