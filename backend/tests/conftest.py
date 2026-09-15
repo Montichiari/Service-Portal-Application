@@ -46,6 +46,7 @@ from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import NullPool
 
+from app.chat import client as chat_client
 from app.config import settings
 from app.db.models import ServiceRequest, Status, User
 
@@ -153,6 +154,40 @@ def db_session(engine: Engine) -> Iterator[Session]:
 @pytest.fixture
 def alembic_config(_prepared_database: None) -> Config:
     return make_alembic_config()
+
+
+# --- no test in this suite may reach a real model (T-CHAT-1) -----------------
+
+
+@pytest.fixture(autouse=True)
+def _no_live_model(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Unset the API key for every test in the suite.
+
+    Once ``get_model_client`` resolves a real client, the developer's own
+    ``.env`` is enough to make ``POST /chat/messages`` place a live, metered
+    call from a test run — and the tests that would do it are the ones that
+    forgot to override the dependency, which is exactly the set nobody is
+    watching. Unsetting the key makes that structurally impossible rather than
+    conventionally discouraged: ``build_sdk_client`` refuses, so there is no
+    client to call with.
+
+    Autouse and suite-wide, not scoped to ``tests/api/``. The cost of a missed
+    corner here is a real charge on someone's account, and the cost of applying
+    it too widely is nothing — the only tests that want a client build one
+    explicitly by setting the key back
+    (``tests/chat/test_model_client.py``), and none of those make a request.
+
+    Deliberately *not* a skip or a marker. The live tests and the eval set live
+    in ``backend/evals/``, outside ``testpaths`` entirely, so a default
+    ``pytest`` run never collects them — see ``backend/evals/README.md``.
+    """
+    monkeypatch.setattr(settings, "ANTHROPIC_API_KEY", None)
+    monkeypatch.setattr(settings, "ANTHROPIC_BASE_URL", None)
+    # The dependency caches its client for the process; a client built by an
+    # earlier test must not survive into a later one that expects none.
+    chat_client._cached_client.cache_clear()
+    yield
+    chat_client._cached_client.cache_clear()
 
 
 # --- lightweight row factories ----------------------------------------------

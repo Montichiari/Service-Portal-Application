@@ -7,15 +7,18 @@ response, the protocol a client satisfies, and the dependency the route
 resolves — and deliberately contains no HTTP, no SDK import and no
 ``ANTHROPIC_API_KEY``.
 
-**T-CHAT-0 therefore ships without a working client on purpose.**
-``get_model_client`` raises, so ``POST /chat/messages`` answers XC-14's ``500``
-envelope until T-CHAT-1 supplies an implementation and the config it needs.
-That is the state the split was chosen to produce: it lets everything else —
-schema, endpoints, tool execution, persistence, the whole trust boundary — be
-built and tested before the key arrives. Tests override this dependency with a
-stub that returns fixed payloads, which is also how they assert what the
-endpoint does with a ``tool_use`` response without any model deciding to
-produce one.
+**T-CHAT-1 supplied the implementation, and it did not move this line.** The
+SDK import, the API key and the model id all live in
+``app/chat/anthropic_client.py``; the import below is inside
+``get_model_client``'s body rather than at the top of this module, so
+everything that reads this seam — the protocol, the response shape, the
+conversation loop and every test that stubs it — still loads without the
+vendor package or a key present. An instance with no ``ANTHROPIC_API_KEY``
+therefore behaves exactly as T-CHAT-0 shipped: ``POST /chat/messages`` answers
+XC-14's ``500`` envelope and every other route is unaffected. Tests override
+this dependency with a stub that returns fixed payloads, which is also how
+they assert what the endpoint does with a ``tool_use`` response without any
+model deciding to produce one.
 
 The protocol is narrow for the same reason. A client has one method, its
 arguments are the three top-level fields of a Messages API request that this
@@ -29,6 +32,7 @@ callers here.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Any, Protocol, runtime_checkable
 
 # `stop_reason` values this feature acts on. The Messages API defines others
@@ -76,7 +80,7 @@ class ChatModelClient(Protocol):
 
 
 class ModelClientNotConfiguredError(RuntimeError):
-    """Raised while no client implementation exists (T-CHAT-0).
+    """Raised when no API key is configured (T-CHAT-0, still raised T-CHAT-1).
 
     A distinct class rather than a bare ``RuntimeError`` so the state is
     greppable and a later health check can name it. It is *not* an ``APIError``
@@ -86,16 +90,31 @@ class ModelClientNotConfiguredError(RuntimeError):
     """
 
 
+@lru_cache(maxsize=1)
+def _cached_client() -> ChatModelClient:
+    """One client for the process, built on first use.
+
+    The SDK object owns a connection pool, so building one per request would
+    open a new TLS connection per message — measurable on a synchronous
+    endpoint the user is watching. Cached rather than module-level because a
+    module-level client would be constructed at import time, which would make
+    an unset ``ANTHROPIC_API_KEY`` a failure to start the application rather
+    than a failure of one route.
+    """
+    # Imported here, not at module scope: this module is the seam, and keeping
+    # the vendor import inside the one function that needs it is what lets the
+    # protocol, the loop and every stubbed test load without the SDK.
+    from app.chat.anthropic_client import build_model_client
+
+    return build_model_client()
+
+
 def get_model_client() -> ChatModelClient:
-    """FastAPI dependency resolving the model client. Implemented in T-CHAT-1.
+    """FastAPI dependency resolving the model client (implemented T-CHAT-1).
 
     Declared as a dependency rather than constructed inside the handler so
     tests can override it through ``app.dependency_overrides`` — the same
     mechanism ``get_db`` uses — instead of monkeypatching a module attribute
     and hoping every call site reads it.
     """
-    raise ModelClientNotConfiguredError(
-        "No Anthropic client is configured. The live Messages API call, the "
-        "ANTHROPIC_API_KEY setting and the model id are T-CHAT-1's scope; "
-        "T-CHAT-0 ships the rest of the chat feature against a stubbed client."
-    )
+    return _cached_client()

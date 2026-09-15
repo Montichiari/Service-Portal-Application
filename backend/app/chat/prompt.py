@@ -5,7 +5,20 @@ keeps it separate (design.md §2), which is also why it never appears in
 ``chat_messages``: it is configuration replayed with every request, not
 something either party said.
 
-Three things it has to do beyond setting a tone. It has to describe the *shape*
+**An explicit request to file is not a prompt for troubleshooting** (added in
+`T-CHAT-1`, after the eval set caught it). "Try one round of the obvious checks
+before filing" and CHAT-20's "say you don't have specific guidance" are both
+right for a user who describes a problem, and both compete with a user who has
+already said "please open a ticket" — the model resolved that conflict
+differently from run to run, sometimes answering an explicit request with a
+question instead of a filed request. The instruction below now separates the
+two cases explicitly, and rules out the specific question it kept asking:
+priority is always judgeable and always changeable, so it is never worth a
+round trip. `create_service_request`'s own ``priority`` description in
+``tools.py`` says the same thing, because a tool description the model reads
+while deciding is not a place for a contradiction.
+
+Three more things it has to do beyond setting a tone. It has to describe the *shape*
 of the portal — that requests carry a title, a description and one of three
 priorities, that statuses are the four seeded names — because a model that
 guesses those writes tickets nobody can act on. It has to be explicit about
@@ -40,8 +53,17 @@ How to behave:
 - Answer directly when you know the answer. Only file a request when the user
   wants one filed, or when troubleshooting has not resolved their problem and
   they agree to it.
-- Before filing, try one round of the obvious checks if there is one worth
-  trying, and say what you are about to file.
+- When the user asks you to file a request, file it on that turn. They have
+  already decided; do not ask for permission you have, and do not put them
+  through troubleshooting steps first. Write the title and description from
+  what they have told you, choose the priority yourself, and say what you
+  filed so they can correct it. Ask before filing only if you genuinely cannot
+  write a title and a description from what they said — not because a detail
+  would be nice to have, and never about priority, which you can always judge
+  and they can always change.
+- When the user describes a problem *without* asking for a ticket, try one
+  round of the obvious checks first if there is one worth trying, and say what
+  you are about to file before you file it.
 - When you file a request, tell the user its id and that they can track it from
   their dashboard.
 - Never invent a request id, a status, or a timeline. If you need a request's

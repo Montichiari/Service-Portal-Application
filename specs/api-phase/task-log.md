@@ -934,3 +934,93 @@ current state.** It records the threshold mechanism as the answer ("10 entries
 today, and the rule now enforces itself"); design.md §7 has since replaced it
 with a fixed ten and no mechanism at all. Left as written, since a task log is
 what was believed at the time.
+
+### T-CHAT-1
+
+**Complete and verified end to end.** 367 backend tests green, up from 344 — 23
+added, no test removed and none rewritten except the one that existed to
+describe the state this task ended. The live half is verified too: a real
+`claude-sonnet-5` exchange against the Foundry deployment files a real service
+request owned by the authenticated caller and answers in natural language, and
+an FAQ question is answered on the first round trip with no tool call. The eval
+set runs clean apart from one open finding — an explicit "file a ticket" does
+not reliably file one — which is recorded in `tasks.md` and left failing rather
+than silenced, because it is a prompt decision rather than a defect.
+
+**Thinking blocks arrive and replay correctly, which nothing anticipated.**
+`claude-sonnet-5` returns `thinking` blocks by default (empty text, signed),
+and they are persisted to `chat_messages.content` and sent back on the
+follow-up call alongside the `tool_use` and its `tool_result` — the API accepts
+the replay, and `_text_from` filters them out of what the widget shows. That
+works by construction rather than by luck: design.md §6's "store the block
+array verbatim, replay it unchanged" is exactly the rule a block type this code
+has never heard of needs. It is worth stating plainly, because a client that
+parsed responses into typed objects on the way in would have dropped these and
+failed on the second call of every tool-using turn.
+
+**Most of this task was completed against a dead credential, and that shaped
+one wrong decision.** The originally provided Foundry key was rejected — `401`
+on every route of the resource, identically to a deliberately wrong key and to
+an empty one. Everything deterministic was built and verified regardless, which
+is exactly what the `T-CHAT-0`/`T-CHAT-1` split was drawn to allow. The cost
+was a hypothesis: debugging the `401`, this task concluded that the Azure
+gateway must require its own `api-key` header, which only the SDK's
+`AnthropicFoundry` client sends, and wrote that into `design.md §2`, decision 8,
+`backend/CLAUDE.md` and a branch in `build_model_client`. **It was wrong.** With
+a working key, the plain `Anthropic` client with nothing but a `base_url`
+completes a full tool-calling exchange. design.md §2's original claim — the
+deployment is wire-compatible and the provider is a config value — was right all
+along, and the branch, the second client class and the two tests asserting it
+are gone. The general lesson is now in `backend/CLAUDE.md`: a `401` is evidence
+about a credential, not about a transport, and a theory built on one while the
+credential is invalid cannot be tested by the thing that would falsify it.
+
+**CHAT-4's cap is the one place this task found a real bug in an obvious
+reading.** "Include the most recent 20 messages" reads as `messages[-20:]`, and
+that slice is wrong in a way that no short conversation can reveal: the
+Messages API rejects a history whose first message carries a `tool_result`
+whose `tool_use` was trimmed away, and in a tool-using thread roughly half the
+cut points do exactly that. It fails the entire request rather than degrading
+the answer, and only after a conversation grows past twenty messages — so a
+test that builds a conversation and asserts a reply would pass forever.
+`history_window` takes the earliest legal starting point inside the cap
+instead. Its test file asserts, first, that its own fixture *is* a
+discriminating case (`test_the_naive_slice_would_be_invalid_here`) — without
+that, every other assertion in the file could be passing against a conversation
+whose tail happens to start legally, where the correct and the broken
+implementation agree.
+
+**The suite is now structurally incapable of spending money.** Two mechanisms,
+because one is not enough. The evals live in `backend/evals/`, outside
+`pytest.ini`'s `testpaths`, so `python -m pytest` does not collect them at all
+— not as skips, not as marker-deselected tests. And an autouse fixture in
+`tests/conftest.py` unsets `ANTHROPIC_API_KEY` for every test under `tests/`,
+so a test that reaches `POST /chat/messages` without stubbing the client gets
+`ModelClientNotConfiguredError` rather than a live call. The second exists
+because the first protects against the wrong mistake: the dangerous test is not
+one deliberately placed in the wrong directory, it is an existing test that
+quietly started making real calls the moment `get_model_client` stopped
+raising. `test_the_endpoint_has_no_model_client_until_the_next_task` was
+precisely that test — it posted to the endpoint with no override, and was
+correct until this task, at which point it would have billed a call per run.
+
+**Six mutations, all caught, tree verified clean afterward:** `history_window`
+replaced by the naive slice (4 red); the window dropped from the loop so the
+whole history is sent (1 red); SDK blocks returned unconverted instead of
+flattened to JSON (1 red); the Foundry branch replaced by the first-party
+client (1 red); the model hardcoded in the call rather than read from config (1
+red); and the client's process-level cache removed (1 red). The last needed a
+second attempt and is the useful one: removing `@lru_cache` also removes
+`cache_clear`, which the new conftest fixture calls, so the first version
+produced 38 collection errors — an import failure, not a caught mutation, per
+backend/CLAUDE.md's rule. Re-applied as a decorator that keeps the surface and
+drops only the memoisation, it fails exactly one test, for the reason that test
+names.
+
+**Not done, deliberately.** Nothing was added to make a failed model call
+answer anything other than XC-14's `500` — a `502`-style envelope for "the
+model is unreachable" is a new error code and a documented status, which is a
+requirement rather than an implementation detail. It is worth raising for Phase
+6 alongside the logging gap, which bites here too: a chat exchange that dies
+mid-loop still leaves nothing in a log saying which user, which tool, or which
+round.

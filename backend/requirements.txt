@@ -16,6 +16,12 @@ python-dotenv
 bcrypt
 # Access-token encode/decode.
 pyjwt
+# The chat assistant's Messages API client (T-CHAT-1). Imported from exactly
+# one module, app/chat/anthropic_client.py, and never at import time from
+# app/chat/client.py — so the rest of the chat feature, and its tests, run
+# without it. `AnthropicFoundry` (needed by this deployment, see that module)
+# ships in the same package; there is no separate Foundry distribution.
+anthropic
 pytest
 # Required by fastapi.testclient / starlette.testclient. Starlette 1.x asks for
 # httpx2 specifically (httpx 2.x, distributed under a new package name), not

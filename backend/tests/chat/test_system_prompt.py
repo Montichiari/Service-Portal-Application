@@ -63,6 +63,31 @@ def test_the_boundary_follows_the_entries_it_describes() -> None:
     assert prompt.index(last_answer) < prompt.index("Those ten questions")
 
 
+def test_the_prompt_separates_an_explicit_request_from_a_problem_report() -> None:
+    """T-CHAT-1: an explicit "file a ticket" must not be answered with a
+    question.
+
+    The eval set found this — the assistant sometimes ran a user who had
+    already asked for a ticket through troubleshooting, or asked them to
+    choose a priority, because "try one round of the obvious checks first"
+    competed with the request. Both halves are asserted because deleting
+    either one reopens it: the rule that an explicit request files on that
+    turn, and the rule that priority is never what a question is spent on.
+
+    Written out as text reaching the model, like CHAT-20's boundary above, for
+    the same reason: importing the constant would only prove it is referenced.
+    """
+    prompt = build_system_prompt()
+
+    assert "When the user asks you to file a request, file it on that turn." in prompt
+    assert "never about priority" in prompt
+    # The troubleshooting-first behaviour is kept, not traded away — it now
+    # names the case it applies to.
+    assert (
+        "When the user describes a problem *without* asking for a ticket" in prompt
+    )
+
+
 def test_the_prompt_still_describes_the_portal_and_the_identity_rule() -> None:
     """T-CHAT-0's content, unchanged — this task edited the FAQ half only."""
     prompt = build_system_prompt()

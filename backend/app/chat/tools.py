@@ -155,7 +155,9 @@ TOOL_DEFINITIONS: dict[str, dict[str, Any]] = {
                     "high when the user is blocked with no workaround, medium "
                     "when something is broken but workable, low for requests "
                     "that are not urgent. Judge it from what the user "
-                    "describes; ask them if it is genuinely unclear."
+                    "describes; when it is genuinely unclear use medium "
+                    "rather than asking — the user can change it afterwards, "
+                    "and a question here delays the request they asked for."
                 ),
             },
         ),

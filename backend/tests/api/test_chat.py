@@ -950,20 +950,65 @@ def test_an_unrecognised_stop_reason_ends_the_turn(
     assert len(stub.calls) == 1
 
 
+# --- CHAT-4: the replayed history is capped ----------------------------------
+
+
+def test_only_the_last_twenty_messages_are_replayed(make_user, say) -> None:
+    """CHAT-4 where it is observable: what the endpoint actually sent.
+
+    Twelve turns is twenty-three stored messages by the last call, so the cap
+    has to bite — a conversation short enough to fit would pass this with no
+    cap implemented at all. The window's shape is asserted too, not just its
+    length: it has to open on a message the API would accept as the first one
+    it sees.
+
+    ``history_window``'s own suite (``tests/chat/test_history_window.py``)
+    covers the boundary cases; this is the wiring — that ``run_exchange`` calls
+    it, rather than handing the model everything it has stored.
+    """
+    user = make_user()
+
+    for turn in range(12):
+        _, stub = say(
+            user, [text_response(f"Answer {turn}.")], message=f"Question {turn}?"
+        )
+
+    sent = stub.calls[0]["messages"]
+    texts = [message["content"][0]["text"] for message in sent]
+
+    # Nineteen, not twenty: the twentieth-from-last message is an assistant
+    # turn, and the window opens at the newest point that is both inside the
+    # cap and a legal first message. "At most twenty" is the requirement; the
+    # exact figure is a property of where the turn boundaries fall.
+    assert 0 < len(sent) <= 20
+    assert sent[0]["role"] == "user"
+    assert sent[0]["content"][0]["type"] == "text"
+    # The oldest messages are the ones dropped, and the newest is the message
+    # just posted — the only direction that makes sense for a conversation.
+    assert "Question 0?" not in texts
+    assert texts[-1] == "Question 11?"
+
+
 # --- T-CHAT-1's seam ---------------------------------------------------------
 
 
-def test_the_endpoint_has_no_model_client_until_the_next_task(
+def test_without_a_configured_key_the_endpoint_fails_in_the_envelope(
     make_user, client_for
 ) -> None:
-    """The state T-CHAT-0 deliberately ships in.
+    """A deployment with no assistant configured: one broken route, in XC-14's
+    envelope, and nothing of the exception's text in the body.
 
-    ``get_model_client`` raises until T-CHAT-1 wires the real one, and this
-    pins that it fails as XC-14's envelope with nothing of the exception's text
-    in it — the message names the API key and the task, which is useful in a log
-    and not something a client should be handed. Asserted rather than left
-    implicit so the next task has something that turns green when it is done.
+    This was T-CHAT-0's permanent state and is now a *configuration* state,
+    which is the reason it is still worth a test — an instance that never set
+    ``ANTHROPIC_API_KEY`` must keep serving everything else rather than fail at
+    startup. The precondition is asserted rather than assumed: it is supplied
+    by the suite-wide ``_no_live_model`` fixture in ``tests/conftest.py``, and a
+    reader landing here should not have to guess why no real call is made.
     """
+    from app.config import settings
+
+    assert settings.ANTHROPIC_API_KEY is None
+
     user = make_user()
 
     response = client_for(user, raise_server_exceptions=False).post(

@@ -19,18 +19,20 @@ inside the next **user** message, because the API has no third role
 conversation be replayed to the API without reconstruction.
 
 **What is deliberately not here.** The call itself. ``client`` is a
-``ChatModelClient`` the caller resolves, and in T-CHAT-0 there is no
-implementation of one — the loop below is exercised by stubs returning fixed
-payloads, which is the split tasks.md drew and the reason none of this needs an
-API key. Capping the replayed history at the last 20 messages (CHAT-4) belongs
-with the live call in T-CHAT-1, and is the one thing a reader should expect to
-see appear here later.
+``ChatModelClient`` the caller resolves — a live one in a configured
+deployment, a stub returning fixed payloads under test. That seam is why none
+of the logic below needs an API key to be exercised.
+
+**The replayed history is capped at the last 20 messages** (CHAT-4, T-CHAT-1),
+and the cap is not a slice: see ``history_window``. Every call of a
+conversation resends its history, so an uncapped thread is a bill that grows
+with every message someone has ever sent.
 """
 
 from __future__ import annotations
 
 import logging
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from sqlalchemy import select
@@ -55,6 +57,12 @@ ROLE_ASSISTANT = "assistant"
 # rounds covers "look the request up, then file a new one" — and the ceiling
 # exists for the pathological case, not the normal one.
 MAX_TOOL_ROUNDS = 5
+
+# How many stored messages are replayed to the model per call (CHAT-4,
+# design.md decision 5). A cost control rather than a context-window one: the
+# whole history is resent on every call, so without a cap the price of a
+# conversation's hundredth message includes its first ninety-nine, forever.
+MAX_HISTORY_MESSAGES = 20
 
 # Sent when the ceiling above is hit. Phrased for the person reading it, since
 # by definition the model is not going to summarise anything at this point.
@@ -161,6 +169,64 @@ def to_model_messages(rows: Sequence[ChatMessage]) -> list[dict[str, Any]]:
     return [{"role": row.role, "content": row.content} for row in rows]
 
 
+def _starts_a_request(message: Mapping[str, Any]) -> bool:
+    """Can the Messages API accept this message as the first one it sees?
+
+    Two conditions, and the second is the one that makes this function exist.
+    A request's history must begin with a ``user`` message — and a ``user``
+    message carrying ``tool_result`` blocks is not a beginning, it is the
+    second half of a pair. The API rejects a ``tool_result`` whose ``tool_use``
+    it cannot see, so a window that opens on one is a ``400`` rather than a
+    shorter conversation.
+    """
+    if message.get("role") != ROLE_USER:
+        return False
+    content = message.get("content") or ()
+    return not any(block.get("type") == "tool_result" for block in content)
+
+
+def history_window(
+    messages: Sequence[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """The last ``MAX_HISTORY_MESSAGES`` messages that form a valid request.
+
+    CHAT-4 says "the most recent 20", and a plain ``[-20:]`` is the obvious
+    reading and a broken one: the cut lands wherever it lands, and roughly half
+    the positions in a tool-using conversation orphan a ``tool_result`` from
+    the ``tool_use`` it answers. That does not degrade the reply — it fails the
+    whole request, and only once a conversation is long enough to be trimmed,
+    which is to say never in the tests that a naive slice would pass.
+
+    So the window is the *earliest legal starting point* that keeps it within
+    the cap: at most 20 messages, always beginning with a user message that
+    opens a turn rather than closing one.
+
+    One turn's own messages are never dropped. A user message followed by five
+    rounds of tool calls is thirteen messages (``MAX_TOOL_ROUNDS`` bounds it),
+    comfortably inside the cap — but if some future tool set pushes a single
+    turn past 20, the last legal start is used even though the result exceeds
+    the cap. Sending a slightly over-budget request beats sending an invalid
+    one.
+    """
+    starts = [
+        index
+        for index, message in enumerate(messages)
+        if _starts_a_request(message)
+    ]
+    if not starts:
+        # No message in the conversation opens a turn. Unreachable through
+        # `run_exchange`, which writes the user's text before anything else —
+        # and the honest answer to a history that cannot be replayed is to
+        # replay none of it rather than to guess at a cut.
+        return []
+
+    within_cap = [
+        index for index in starts if len(messages) - index <= MAX_HISTORY_MESSAGES
+    ]
+    start = within_cap[0] if within_cap else starts[-1]
+    return list(messages[start:])
+
+
 def _text_from(content: Sequence[dict[str, Any]]) -> str:
     """The text blocks of one assistant message, joined.
 
@@ -218,7 +284,13 @@ def run_exchange(
         response = client.create_message(
             system=system,
             tools=tools,
-            messages=to_model_messages(conversation_messages(db, conversation)),
+            # Re-read and re-windowed every iteration rather than appended to
+            # in memory: the rows written inside this loop are what the next
+            # call must replay, and reading them back is what guarantees the
+            # model sees exactly what was stored (CHAT-4, CHAT-10).
+            messages=history_window(
+                to_model_messages(conversation_messages(db, conversation))
+            ),
         )
 
         content = list(response.content or ())

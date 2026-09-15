@@ -450,11 +450,68 @@ reason `visibility.py` exists as its own module rather than living in
 
 `app/chat/client.py` holds the `ChatModelClient` protocol, the
 `ModelResponse` shape and the `get_model_client` dependency, and contains
-no SDK import, no HTTP and no `ANTHROPIC_API_KEY`. That is the line
-`tasks.md` splits `T-CHAT-0` from `T-CHAT-1` at, and it is what lets the
-whole feature be tested deterministically: tests override the dependency
-with a stub returning fixed payloads (`tests/api/test_chat.py`), never by
-monkeypatching a module attribute.
+no SDK import at module scope, no HTTP and no `ANTHROPIC_API_KEY`. That is
+the line `tasks.md` splits `T-CHAT-0` from `T-CHAT-1` at, and it is what
+lets the whole feature be tested deterministically: tests override the
+dependency with a stub returning fixed payloads
+(`tests/api/test_chat.py`), never by monkeypatching a module attribute.
+
+`T-CHAT-1` filled the seam without moving it. Everything vendor-specific —
+the SDK import, the key, the model id, the token ceiling, the timeout, and
+the conversion from typed blocks back to plain JSON — lives in
+`app/chat/anthropic_client.py`, and `client.py` reaches it through an
+import *inside* `_cached_client`'s body. Keep it there: a module-scope
+import would make the protocol, the loop and every stubbed test depend on
+the `anthropic` package being installed, and a module-level client object
+would turn an unset key into a failure to start the application rather
+than a failure of one route.
+
+**The provider is a config value, not a code path.** One SDK client class
+(`Anthropic`), with `base_url` passed when `ANTHROPIC_BASE_URL` is set and
+`None` when it is not. The Foundry deployment is wire-compatible down to
+the auth header — `x-api-key`, same as the direct endpoint — verified
+against the live resource in `T-CHAT-1`, so there is no `AnthropicFoundry`
+branch and nothing provider-specific to keep in step. Don't add one back
+on the strength of a `401`: that symptom is a credential, not a transport
+(it was, in `T-CHAT-1`, and cost a wrong hypothesis that reached the spec
+before being corrected).
+
+### Nothing under `tests/` may call a real model
+
+Two mechanisms, and both are load-bearing:
+
+- The live tests and the eval set live in `backend/evals/`, outside
+  `pytest.ini`'s `testpaths`, so `python -m pytest` never collects them.
+  Run them deliberately with `python -m pytest evals -q -s`; every run is
+  billed. A marker would not have been enough — it leaves the tests one
+  `-m` flag away from running in CI.
+- `tests/conftest.py`'s autouse `_no_live_model` fixture unsets
+  `ANTHROPIC_API_KEY` for every test in the suite, so a test that reaches
+  `POST /chat/messages` without overriding `get_model_client` raises
+  `ModelClientNotConfiguredError` instead of placing a call. The
+  dangerous test is never the one someone puts in the wrong directory —
+  it is the one that already existed and quietly started making real
+  calls when `get_model_client` stopped raising.
+
+A test that genuinely needs a client sets the key back through
+`monkeypatch` and builds one without calling it
+(`tests/chat/test_model_client.py`). If you ever share fixtures the other
+way, import them by name: a `from tests.conftest import *` inside
+`evals/conftest.py` would drag that autouse fixture in and leave the evals
+skipping with "no key configured" while `.env` plainly has one.
+
+### The history cap is not a slice
+
+`CHAT-4`'s "most recent 20 messages" is implemented by
+`conversation.history_window`, not by `messages[-20:]`. The Messages API
+rejects a history whose first message carries a `tool_result` whose
+`tool_use` was trimmed away, and in a tool-using conversation roughly half
+the cut points do exactly that — so the naive slice fails the whole
+request, and only once a thread is long enough to be trimmed. The window
+is the earliest legal starting point inside the cap. Any future change to
+what gets replayed has to preserve that property, and
+`tests/chat/test_history_window.py` starts by proving its own fixture is a
+case where the two implementations actually differ.
 
 `ModelResponse.content` is the raw content-block array, stored and
 replayed verbatim. Do not parse it into typed objects on the way in — a
@@ -535,8 +592,8 @@ comment out the constraint, confirm the test goes red, then restore it. A
 constraint test that has never been observed to fail is not verified,
 only written.
 
-**This rule has now caught a real defect six times across this project**,
-in six different disguises: a tamper test that corrupted a token's
+**This rule has now caught a real defect eight times across this project**,
+in eight different disguises: a tamper test that corrupted a token's
 encoding rather than its meaning, so it failed before reaching the check
 it named (`T-AUTH-1`); a cookie-expiry assertion that computed its
 expected value from the constant under test, so changing that constant
@@ -549,7 +606,15 @@ couldn't tell a correct append from a page reload that also ended with
 the comment on screen (`T-CM-1`); and an atomicity test whose fixture
 lived inside the same rollback savepoint the assertion was observing, so
 it couldn't distinguish a correctly-scoped rollback from the whole test
-tearing down anyway (`T-SC-0`). The pattern underneath is always the
+tearing down anyway (`T-SC-0`); a loop-ceiling test whose six rounds were
+driven by a `search_faq` payload, so deleting that tool would have left it
+green while exercising the unknown-tool path instead of the loop it names
+(`T-CHAT-0b`, logged there and never counted here until now); and a
+history-window suite whose assertions would all have held against a
+conversation that happened to be trimmable at a legal point, where the
+correct and the broken implementation agree — fixed by making the fixture
+prove it discriminates before anything else is asserted (`T-CHAT-1`). The
+pattern underneath is always the
 same — **the test passes, and would keep passing, without the thing it
 names ever being true** — and reading the test never reveals it. Only
 removing the subject and watching for red does. Apply this hardest to

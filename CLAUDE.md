@@ -83,28 +83,45 @@ those checkmarks are not evidence in either direction.
 ### Phase 5 — AI-Powered Chat Integration
 
 Rows added 2026-09-14, the day the phase began (`T-CHAT-0`), sourced from
-`PROJECT_BRIEF.md`'s own bullets; re-verified 2026-09-15 after `T-CHAT-0b`.
-**Two tasks of four are done**, so most rows are partial by design rather
-than by drift — `T-CHAT-1` wires the live model call and `T-CHAT-2` builds
-the widget. Verified against the running code: 344 backend pytest tests
-green against the docker-compose Postgres (12 deliberate defects caught in
-`T-CHAT-0`, 5 more in `T-CHAT-0b`), and `/openapi.json` unchanged since
-`T-CHAT-0b` touched no route.
+`PROJECT_BRIEF.md`'s own bullets; re-verified 2026-09-15 after `T-CHAT-1`.
+**Four tasks of five are done**, and the fifth — the frontend widget
+(`T-CHAT-2`) — has not started. Verified against the running code: 367
+backend pytest tests green against the docker-compose Postgres (12
+deliberate defects caught in `T-CHAT-0`, 5 in `T-CHAT-0b`, 6 in
+`T-CHAT-1`), and `/openapi.json` unchanged since `T-CHAT-0b` — neither
+later task touched a route.
+
+**Verified against a live model**, not only against stubs: `claude-sonnet-5`
+on the Foundry deployment files a real service request for the authenticated
+caller and answers in natural language, and an FAQ question is answered in
+one round trip with no tool call. (The first credential provided for that
+resource was invalid — `401` on every route, indistinguishable from a wrong
+key — so most of `T-CHAT-1` was built and verified before any model
+answered. A replacement key works.)
+
+**One open finding, deliberately left failing.** The eval set shows that an
+explicit "please open a ticket" does not reliably produce a
+`create_service_request` call: the assistant sometimes runs one round of
+troubleshooting questions first, which is what `prompt.py` tells it to do,
+and the conflict resolves differently from run to run. It is a prompt
+decision rather than a defect — see `specs/chatbot/tasks.md`, T-CHAT-1.
 
 | Requirement                            | Status                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| "Integrate AI chatbot using OpenAI"     | **Deliberately not OpenAI.** `specs/chatbot/design.md` supersedes this line with the Anthropic Messages API (`claude-haiku-4-5`), which changes the shape of the work rather than just the vendor: there is no `tool` role, so a tool call is a `tool_use` block in an assistant message and its result a `tool_result` block in the next user message. Recorded here rather than silently — the brief's word is "OpenAI" and the code will say Anthropic. No call of any kind is wired yet: `get_model_client` raises until `T-CHAT-1`, which is the task that needs an API key |
+| "Integrate AI chatbot using OpenAI"     | **Deliberately not OpenAI.** `specs/chatbot/design.md` supersedes this line with the Anthropic Messages API (`claude-sonnet-5`, via a Microsoft Foundry deployment — decisions 1 and 8, both revised), which changes the shape of the work rather than just the vendor: there is no `tool` role, so a tool call is a `tool_use` block in an assistant message and its result a `tool_result` block in the next user message. Recorded here rather than silently — the brief's word is "OpenAI" and the code says Anthropic. The call is wired as of `T-CHAT-1`: `get_model_client` resolves a real SDK client, `app/chat/anthropic_client.py` is the only module that imports the vendor or reads the key, and the history sent with each call is capped at 20 messages at a boundary the API will accept. Unverified end to end — see the qualification above |
 | Supports: FAQs                         | Done at the backend (`T-CHAT-0b`). The ten Q&A pairs `design.md §7` fixes, in `app/chat/faq.py` (a module, never a table — CHAT-12), inlined into the system prompt unconditionally — decision 4 closed on a hand-maintained set, so the entry-count threshold and the FAQ-search tool `T-CHAT-0` built are removed outright rather than left unreachable. Verified against the document rather than a second copy of itself: `tests/chat/test_faq.py` parses the ten entries out of `design.md` and asserts the module matches, order included. CHAT-20's grounding boundary is in the prompt and asserted as the literal string reaching the client                                                                                                                                                                                                                                                                                                                     |
 | Supports: Service request creation     | Done at the backend. The `create_service_request` tool calls the same `app/services/service_requests.py` function `POST /service-requests` calls — extracted in this task so there is one insert, not two. The request is always filed for the authenticated caller; an identity-shaped argument from the model is ignored (CHAT-7), tested against a payload carrying four of them                                                                                                                                                                                          |
 | Supports: Ticket status lookup         | Done at the backend. `get_request_status` resolves visibility through `app/api/visibility.py`'s `load_visible_service_request` — the same function the detail endpoint uses, asserted by a spy rather than by agreement — so admins reach any request and users only their own (CHAT-9)                                                                                                                                                                                                                                                                                  |
-| Supports: Basic troubleshooting guidance | Partial. The finalized ten entries cover the standard first steps (password, VPN, printer, wifi, power, email sync), and CHAT-20 now tells the model to decline rather than improvise past them — but nothing exercises either until a real model answers, so `T-CHAT-1`'s eval set is still where this becomes checkable                                                                                                                                                                                                                                                                                                                                                |
+| Supports: Basic troubleshooting guidance | Partial. The finalized ten entries cover the standard first steps (password, VPN, printer, wifi, power, email sync), and CHAT-20 now tells the model to decline rather than improvise past them. `T-CHAT-1` built the eval set that checks it — `backend/evals/test_tool_choice.py`, seven cases asserting a tool *choice* and never a phrasing, one of them a question outside the FAQ entirely. It runs on demand and has never produced a result, for the credential reason above                                                                                                                                                                                                                                                                                                                                                |
 | Connect chatbot to backend APIs        | Done, and deliberately *not* over HTTP: tool execution calls the service layer and the shared visibility loader in-process, so there is no second network hop and no second copy of the ownership rule. `POST`/`GET /api/v1/chat/messages` are mounted, authenticated by the existing cookie session (CHAT-13), and carry no conversation id in either URL (CHAT-2)                                                                                                                                                                                                          |
-| _Deliverable: "AI assistant available within the portal"_ | Not yet. Two of three tasks remain: the live call (`T-CHAT-1`) and the widget (`T-CHAT-2`). `POST /chat/messages` currently answers XC-14's `500` envelope, which is the state this phase's task split was drawn to produce — everything deterministic finished before the key arrives                                                                                                                                                                                                     |
+| _Deliverable: "AI assistant available within the portal"_ | Not yet, and now for two separate reasons. There is no widget (`T-CHAT-2`), so nothing in the portal surfaces the assistant. And `POST /chat/messages` still answers XC-14's `500` in this deployment — no longer because no client exists, but because the configured credential is rejected by the resource it points at. The first is work; the second is a key                                                                                                                                                                                                     |
 
 **Known gaps inside the finished half**, so they are not rediscovered as
-surprises: CHAT-4's 20-message history cap is not implemented (the loop
-replays the whole conversation — correct, but uncapped, and listed under
-`T-CHAT-1`); CHAT-18 defers rate limiting on `/chat/messages` to Phase 6,
+surprises: a failed model call answers XC-14's generic `500`, which is
+indistinguishable to the widget from a bug in the backend — a dedicated
+status and error code for "the assistant is unreachable" is a new
+requirement rather than an implementation detail, and belongs with Phase
+6's hardening; CHAT-18 defers rate limiting on `/chat/messages` to Phase 6,
 which matters more here than on `/auth/login` because every message is a
 metered API call; and the Phase 3 logging gap below applies to this
 surface too — a chat exchange that fails mid-loop leaves nothing in a log

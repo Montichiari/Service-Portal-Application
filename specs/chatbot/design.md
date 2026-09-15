@@ -14,6 +14,10 @@ guidance, all backed by the existing service-layer functions rather than new log
 - Anthropic Messages API, via a Microsoft-Foundry-hosted deployment (§10 decision 8) —
   wire-compatible with the direct `https://api.anthropic.com` endpoint, same request/response
   shape, so nothing else on this page changes because of where the deployment lives.
+  **Confirmed against the live resource in `T-CHAT-1`**, rather than left as an assumption: the
+  first-party client with nothing but a `base_url`, authenticating with its ordinary `x-api-key`
+  header, completes a full tool-calling exchange against the Foundry deployment. No
+  provider-specific client class and no extra header are needed.
 - Model: `claude-sonnet-5` (§10 decision 1, revised) — not a cost/latency choice this time, but
   the only model actually deployed on the provided resource. The original Haiku-4.5 reasoning
   (cost-appropriate for a small tool set, argument validation matters more than model quality)
@@ -36,7 +40,13 @@ guidance, all backed by the existing service-layer functions rather than new log
 2. Backend gets-or-creates that user's `chat_conversations` row, loads its prior messages from
    `chat_messages`, and appends the new user message.
 3. Backend calls the Messages API with `system` (behavior instructions + FAQ content, §7),
-   `tools` (§4), and the message history.
+   `tools` (§4), and the message history — capped at the last 20 messages (decision 5).
+   **The cap is not a slice** (`T-CHAT-1`): a request's history must begin with a user message
+   that is not itself a `tool_result`, because the API rejects a `tool_result` whose `tool_use`
+   it cannot see. `messages[-20:]` lands mid-pair roughly half the time in a tool-using
+   conversation, and only once a thread is long enough to be trimmed — a failure that cannot
+   appear in a short test and takes out the whole request when it does appear. The window is
+   therefore the earliest legal starting point within the cap.
 4. Response `stop_reason` is either `end_turn` (plain text) or `tool_use` (one or more tool
    calls).
 5. For each tool call: validate arguments against the tool's schema, execute the matching
@@ -188,7 +198,7 @@ endpoint are dropped for the same reason — revisit only if multi-thread suppor
 | 5   | History window: capped at the last 20 messages per request, not the full thread — a cost control, since per-token pricing scales with every call regardless of thread length or which model is deployed (§3)                                                           | Decided           |
 | 6   | Chat message length limit: 4000 characters (CHAT-14) — generous for a support request, cheap to raise later if it's wrong                                                                                                                                              | Decided           |
 | 7   | Tool-loop ceiling: `MAX_TOOL_ROUNDS = 5` (CHAT-19) — five rounds after the first call, six Messages API calls maximum per user message; on exhaustion, a fixed reply is returned and the conversation id is logged, rather than raising or looping indefinitely        | Decided           |
-| 8   | Deployment: Microsoft Foundry (assessment-provided resource), not a direct Anthropic Console key — `ANTHROPIC_BASE_URL` set accordingly (§2). Client code stays provider-agnostic; this decision only fixes which provider this specific deployment actually points at | Decided           |
+| 8   | Deployment: Microsoft Foundry (assessment-provided resource), not a direct Anthropic Console key — `ANTHROPIC_BASE_URL` set accordingly (§2). Client code stays provider-agnostic; this decision only fixes which provider this specific deployment actually points at. Verified end to end in `T-CHAT-1`: one client class, `base_url` from config, a live tool-calling exchange against the resource (§2) | Decided           |
 
 ## 11. Testing approach
 
@@ -205,3 +215,11 @@ test:
   choice_, not an expected exact reply (e.g. "my laptop won't turn on" → expect a
   `create_service_request` call). Run occasionally, not on every CI push — it costs money and can
   be flaky — to catch routing regressions when the system prompt or tool schemas change.
+
+`T-CHAT-1` gave "run occasionally" a mechanism rather than a convention. The evals live in
+`backend/evals/`, which `pytest.ini`'s `testpaths = tests` excludes from collection entirely — a
+marker would have left them one `-m` flag away from running in CI, where the cost of the mistake
+is a bill rather than a red build. The guarantee has a second half: an autouse fixture in
+`tests/conftest.py` unsets `ANTHROPIC_API_KEY` for every test under `tests/`, so a test that
+reaches `POST /chat/messages` without stubbing the client cannot place a live call even by
+accident. Nothing in the default suite can spend money; nothing in `evals/` pretends not to.

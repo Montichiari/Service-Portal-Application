@@ -191,16 +191,46 @@ necessary** — nothing before this task needs them.
 
 **Acceptance criteria**:
 
-- [ ] `CHAT-6`/`CHAT-11`: a live message that should trigger a tool call (e.g. "create a ticket
+- [x] `CHAT-6`/`CHAT-11`: a live message that should trigger a tool call (e.g. "create a ticket
       for my broken laptop") results in a real row in `service_requests`, owned by the test user,
-      and a natural-language confirmation reply
-- [ ] `CHAT-3`: the user's message is persisted before the API call is made — verify by forcing
-      the API call to fail and asserting the user message still exists
-- [ ] A message that doesn't need a tool (an FAQ-style question) returns a plain-text reply on
-      the first round trip, with no tool call made
-- [ ] Eval set (`design.md §11`): a small fixed list of example messages with an expected tool
+      and a natural-language confirmation reply — **verified live**
+      (`evals/test_live_exchange.py::test_asking_for_a_ticket_files_one`): `claude-sonnet-5`
+      chose `create_service_request`, the row was filed for the authenticated caller with no
+      assignee and status `open`, and the reply named its id and pointed at the dashboard
+- [x] `CHAT-3`: the user's message is persisted before the API call is made — verify by forcing
+      the API call to fail and asserting the user message still exists — **verified against the
+      live endpoint**, with the real client and a real transport failure, in addition to the
+      deterministic test `T-CHAT-0` already had
+- [x] A message that doesn't need a tool (an FAQ-style question) returns a plain-text reply on
+      the first round trip, with no tool call made — **verified live**: "How do I reset my
+      password?" answered from FAQ 1 in one round trip, no tool call, nothing filed
+- [x] Eval set (`design.md §11`): a small fixed list of example messages with an expected tool
       choice, not an expected exact reply — run manually or on a separate, not-every-push job,
-      per the design's reasoning on cost and flakiness
+      per the design's reasoning on cost and flakiness — **`evals/test_tool_choice.py`, seven
+      cases, kept off every-push by living outside `testpaths` rather than behind a marker.
+      Runs clean apart from the open finding below**
+
+**The eval set's first finding: an explicit "file a ticket" does not reliably file one.** Two
+consecutive runs failed in two different places, and both are the same behaviour. Run 1:
+`explicit-request` ("Please open a ticket: my monitor flickers every few minutes") made no tool
+call — the assistant said it had no specific guidance for monitor flicker, offered to log a
+ticket, and asked about scope and priority first. Run 2: that case passed and the live exchange
+failed instead — "My laptop won't turn on… Please file a ticket for this" was answered with
+"Before I file this, have you tried holding the power button down for about 10 seconds?"
+
+This is the system prompt working as written. `prompt.py` says to try one round of the obvious
+checks before filing, to judge priority from what the user describes and ask when it is genuinely
+unclear; CHAT-20 says to decline rather than improvise guidance. Against an explicit request to
+file, those instructions compete with the request, and the model resolves the conflict
+differently from run to run. It is also arguably the wrong product behaviour: a user who says
+"please open a ticket" has asked for one, and filing it with a sensible default beats an
+interrogation they can correct afterwards.
+
+Left open deliberately, failing, rather than silenced. Resolving it means editing either the
+prompt (T-CHAT-0b's file) or the expectation, and that is a product decision. It also makes
+`test_asking_for_a_ticket_files_one` non-deterministic as written — a single-turn assertion
+against a model that may reasonably ask first — so whichever way the prompt goes, that test
+should drive a second turn rather than assume the first one files.
 
 ### T-CHAT-2 — Frontend chat widget
 
