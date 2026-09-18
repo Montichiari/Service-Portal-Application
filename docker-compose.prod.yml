@@ -1,0 +1,129 @@
+# Prod-like stack (T-DO-3) — the built images, running together, locally.
+#
+# docker-compose.yml beside this file is the development environment: one
+# disposable Postgres, with FastAPI and Vite run natively. This file is its
+# opposite. Nothing here mounts source, nothing runs a dev server, and nothing
+# reloads: every process is the artifact T-DO-1 and T-DO-2 produce, configured
+# the way the ECS task definition will configure it (DO-3). It exists to answer
+# one question before AWS is involved — do those images actually work together.
+#
+# What it is not: production. The database is a container, not RDS (DO-6 is
+# about the deployed stack, and a local RDS is not a thing); nginx stands in
+# for S3 + CloudFront; there is no ALB, no TLS and no Secrets Manager. Those
+# are T-DO-4's, and the point of this file is that the parts *below* them are
+# already known-good when that work starts.
+#
+#   Usage (deploy/README.md has the long version):
+#     docker build --build-arg VITE_API_URL=http://localhost:8001 \
+#         -t service-portal-frontend-dist:local frontend
+#     docker compose -f docker-compose.prod.yml up -d --build
+#     # browse http://localhost:8080
+#     docker compose -f docker-compose.prod.yml down -v
+#
+# Its own project name, which is not cosmetic: without it compose derives the
+# project from the directory and this file's `db` service would collide with
+# the development stack's — same project, same service name, different
+# definition, so starting one would recreate the other's container and adopt
+# its volume. Named separately, the two stacks coexist and `down -v` here
+# cannot touch dev data.
+name: service-portal-prod
+
+# Host ports are 8001 and 8080, deliberately not 8000 and 5173. The dev backend
+# and dev Vite server keep those, so this stack runs alongside them instead of
+# demanding they be stopped — and, more importantly, a browser pointed at this
+# stack cannot silently be answered by the dev backend. A prod-like check that
+# accidentally talks to the development server proves nothing, and nothing in
+# the page would look wrong.
+
+x-backend-config: &backend-config
+  # The database lives on the compose network, addressed by service name on
+  # 5432 — not the host's 5433. Credentials here are throwaway and local: this
+  # Postgres is reachable from nowhere else (no published port, below), and in
+  # the real deployment the URL comes out of Secrets Manager (DO-8).
+  DATABASE_URL: postgresql+psycopg2://portal:portal@db:5432/portal
+  # No default, on purpose — the one value in this file that must never have a
+  # committed one. `.env.example`'s placeholder secret being live in dev is a
+  # known Phase 3 gap; giving this stack a default would recreate it in the
+  # environment that is supposed to be rehearsing DO-8's injection. Compose
+  # refuses to start without it, which is the same failure the container itself
+  # produces when DATABASE_URL or JWT_SECRET_KEY is missing (DO-3).
+  JWT_SECRET_KEY: ${JWT_SECRET_KEY:?not set. Generate one and export it before starting this stack - deploy/README.md has the command for PowerShell and for bash}
+  # CORS (XC-12) must name the origin the browser is actually on, which is
+  # nginx's published port, not the backend's own. Getting this wrong is
+  # invisible server-side and shows up only as a fetch failing in the page.
+  FRONTEND_ORIGIN: http://localhost:8080
+
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: portal
+      POSTGRES_PASSWORD: portal
+      POSTGRES_DB: portal
+    # No published port. In the deployed stack the database sits in the VPC
+    # with a security group that admits the ECS task and nothing else (DO-5);
+    # the local equivalent of "not reachable from outside" is not publishing
+    # it. It also removes any chance of this Postgres and the dev one being
+    # confused for each other on the host.
+    volumes:
+      - prod_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U portal -d portal"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  # DO-21 runs migrations as a pipeline step against RDS, using the backend
+  # image with a different command. This is that step, locally: same image,
+  # `alembic upgrade head`, run to completion before the API starts. The image
+  # ships alembic/ and alembic.ini precisely so this needs no second artifact
+  # that could drift from the code it migrates (backend/Dockerfile).
+  migrate:
+    image: service-portal-backend:local
+    # Deliberately no build section, and pull_policy: never. This must be the
+    # *same image* the api service runs, not a second build of the same
+    # Dockerfile that could differ, and never something fetched from a
+    # registry. If the tag is missing, failing here is the correct outcome.
+    pull_policy: never
+    command: ["alembic", "upgrade", "head"]
+    environment: *backend-config
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    image: service-portal-backend:local
+    build:
+      context: ./backend
+    environment: *backend-config
+    ports:
+      - "8001:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  web:
+    image: service-portal-frontend:local
+    build:
+      context: ./deploy
+      dockerfile: frontend.Dockerfile
+      args:
+        # The image T-DO-2 produces, consumed as a build stage. It is built by
+        # hand rather than by compose because its build argument (VITE_API_URL)
+        # has to match this stack's published API port — Vite bakes it into the
+        # bundle, so it is a property of the artifact, not of the runtime.
+        FRONTEND_DIST_IMAGE: ${FRONTEND_DIST_IMAGE:-service-portal-frontend-dist:local}
+    ports:
+      - "8080:80"
+    depends_on:
+      # Ordering only — nginx serves static files and does not talk to the API.
+      # It is here so `up` brings the page up last, after the thing the page
+      # will immediately call.
+      - api
+
+volumes:
+  prod_postgres_data:

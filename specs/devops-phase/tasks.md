@@ -126,6 +126,78 @@ not rendered). Removing the prose-derived utilities is the point, not a side eff
 **Acceptance**: Full click-through — log in, submit a request, see it on the dashboard — using
 only built artifacts, no source-mounted volumes.
 
+**Done.** `docker-compose.prod.yml` (repo root) + `deploy/frontend.Dockerfile`, `deploy/nginx.conf`
+and `deploy/README.md`. Four services: Postgres, a one-shot `migrate` running `alembic upgrade head`
+out of the backend image, the API image, and nginx serving `T-DO-2`'s `dist/`. No application source
+changed, and no Python or TypeScript was touched at all.
+
+The click-through was done in a real browser against the running stack, not asserted from `curl`:
+register → sign in → submit a **High** request → it appears on the dashboard as **Open** → open its
+detail page. Every one of the nine API calls went to `http://localhost:8001`, the stack's own
+backend; `POST /auth/login` set the cookies and the authenticated `GET /service-requests` that
+followed returned `200`, so the cross-origin credentialed path (`XC-12`, `XC-9`, `Secure` cookies)
+works between two containers exactly as it does in development. Console errors across the whole
+session: the two expected `401`s from the signed-out bootstrap (`/auth/me`, then `/auth/refresh`)
+and nothing else.
+
+"Using only built artifacts" was checked mechanically rather than by reading the compose file:
+`docker inspect` reports **zero mounts** on `api`, `web` and `migrate`, and the only volume in the
+project is the database's own data directory. And "the built frontend" means `T-DO-2`'s image
+itself — all 22 files nginx serves were compared by `sha256` against the image's contents and match,
+because `frontend.Dockerfile` consumes that image as a build stage (`FROM ${FRONTEND_DIST_IMAGE}`)
+rather than rebuilding anything. The dist image stays unrunnable: `docker run` on it still fails with
+"no command specified", and a control build pointed at a nonexistent tag fails outright, so the
+`FROM` is load-bearing rather than decorative.
+
+**The ports are 8001 and 8080, and that is the substantive decision in this task.** Publishing the
+API on 8000 would let a browser aimed at this stack be answered by the *development* backend, with
+nothing on the page looking wrong — a prod-like check that silently talks to a dev server proves
+nothing. This turned out not to be hypothetical: the process on `:8000` during verification was a
+uvicorn started before `T-DO-0`, still answering the old memory-only `{"status":"ok"}`. The bundle
+makes the separation structural rather than conventional — it is built with
+`--build-arg VITE_API_URL=http://localhost:8001` (DO-25, again load-bearing), and
+`http://localhost:8000` appears nowhere in it. The compose project is named `service-portal-prod`
+for the same class of reason: without it compose derives the project from the directory, and this
+file's `db` would collide with the development stack's — same project, same service name, different
+definition — so starting one would recreate the other's container and adopt its volume. Both stacks
+were confirmed running side by side afterwards, with separate volumes.
+
+`JWT_SECRET_KEY` has **no default**, and compose refuses to start without it (observed, not
+assumed — `docker compose config` errors with the message the file carries). Every other value here
+is a throwaway local; the signing key is the one where a committed default would reproduce the
+Phase 3 gap, and requiring it from the environment is the same shape of answer Secrets Manager gives
+in the deployed stack (DO-8). A root `.gitignore` was added with `/.env` so the file compose reads
+for it cannot be committed.
+
+**Verification of DO-1 – DO-4 at the stack level**, which is what this task "covers": `/health`
+returns `{"status":"ok","db":"connected"}` from the composed stack; the API container runs as uid
+10001; `docker diff` on it after serving the whole click-through is **empty**, so DO-4's "no log
+file" holds under real traffic and not only in `T-DO-1`'s single-container check; `/app` contains
+`app`, `alembic` and `alembic.ini` and no `.env`, with `DATABASE_URL`, `JWT_SECRET_KEY` and
+`FRONTEND_ORIGIN` all arriving from compose at runtime (DO-3). Migrations run as their own service
+because DO-21 will run them as their own pipeline step, and `api` waits on
+`service_completed_successfully` rather than on the database alone. A second `up` after a `down`
+re-runs `alembic upgrade head` as a no-op, the data survives in the volume, and the browser session
+survives with it — which is only true because the key is stable across restarts, the same property
+the real deployment gets from Secrets Manager.
+
+nginx is the local stand-in for S3 + CloudFront and is deliberately **not** a reverse proxy:
+proxying `/api` through it would make the stack same-origin and stop exercising the CORS and
+SameSite behaviour the real deployment depends on — the one difference that would then go untested.
+Its SPA fallback was checked in both directions: a deep link (`/requests/new`) returns the app with
+`Cache-Control: no-cache`, and a missing asset under `/assets/` returns **404** rather than being
+swallowed into `index.html`, which is what would otherwise turn a broken bundle into a page that
+merely looks blank.
+
+Two things this task deliberately did not do. It did not add a runtime stage to
+`frontend/Dockerfile`: `T-DO-2`'s image is unrunnable by construction, and the serving image
+consumes it instead. And the new files live at the repo root and in `deploy/`, never under
+`frontend/`, because every tracked file there is an input to the Tailwind build (DO-26) — a
+Dockerfile placed beside the app would have changed the emitted stylesheet merely by existing. That
+was verified rather than trusted: with `deploy/` and `docker-compose.prod.yml` in place, a fresh
+local `npm run build` is byte-identical to the previous one, and the container build is byte-identical
+to it — `T-DO-2`'s equality still holds, all 22 files.
+
 ## T-DO-4 (Manual, AWS Console) — Provision core infrastructure
 
 **Goal**: Stand up the AWS resources this phase depends on.

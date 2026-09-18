@@ -1,0 +1,15 @@
+# Repo-root ignores only. backend/ and frontend/ keep their own .gitignore for
+# everything inside them; nothing here is meant to shadow those.
+
+# Compose reads a .env beside docker-compose*.yml for variable interpolation,
+# and docker-compose.prod.yml requires JWT_SECRET_KEY (T-DO-3). That makes the
+# root a place a real signing secret can now land, so it is ignored before
+# anyone puts one there — same reason backend/.gitignore has the line.
+/.env
+
+# Build output, not source. T-DO-2's image is consumed with
+# `docker build --output type=local,dest=frontend-dist-prod frontend` to compare
+# its 22 files against a local `npm run build`; the extracted tree is a
+# verification artifact, regenerable from the image, and is the same thing
+# frontend/.gitignore excludes as `dist`.
+/frontend-dist-prod/

@@ -2,6 +2,11 @@
 # The FastAPI and React apps are NOT containerized here — run those natively.
 # Credentials/db name match backend/.env.example's DATABASE_URL.
 # Host port is 5433 (not 5432) to avoid clashing with a locally-installed Postgres service.
+#
+# This is the development environment (DO-16). For the built images running
+# together — the API and the frontend as the containers T-DO-1 and T-DO-2
+# produce — see docker-compose.prod.yml beside this file and deploy/README.md.
+# The two are separate compose projects and can run at the same time.
 
 services:
   db:
